@@ -411,6 +411,7 @@ class Trainer(object):
         parser.add_argument('--seed', default=42, type=int)
         parser.add_argument('--amp', action='store_true')
         parser.add_argument('--clip-grad-norm', default=None, type=float)
+        parser.add_argument("--local_rank", type=int)
 
         return parser
 
