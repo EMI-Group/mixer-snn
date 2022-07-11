@@ -43,9 +43,9 @@ class Trainer(object):
     def main(self, args):
         set_deterministic(args.seed)
         if args.output_dir:
-            os.makedirs(args.output_dir)
+            os.makedirs(args.output_dir, exist_ok=True)
 
-        utils.init_distributed_mode(args)
+        # utils.init_distributed_mode(args)
         print(args)
 
         device = torch.device(args.device)
@@ -353,6 +353,7 @@ class Trainer(object):
             train=True,
             transform=torchvision.transforms.Compose([
                 torchvision.transforms.ToTensor(),
+                torchvision.transforms.RandomResizedCrop(224),
                 torchvision.transforms.Normalize(
                     mean=(0.4914, 0.4822, 0.4465),
                     std=(0.2023, 0.1994, 0.2010),
@@ -365,6 +366,7 @@ class Trainer(object):
             train=False,
             transform=torchvision.transforms.Compose([
                 torchvision.transforms.ToTensor(),
+                torchvision.transforms.Resize(224),
                 torchvision.transforms.Normalize(
                     mean=(0.4914, 0.4822, 0.4465),
                     std=(0.2023, 0.1994, 0.2010),
@@ -374,6 +376,8 @@ class Trainer(object):
 
         loader_generator = torch.Generator()
         loader_generator.manual_seed(args.seed)
+
+        args.distributed = False
 
         if args.distributed:
             train_sampler = torch.utils.data.DistributedSampler(dataset=dataset_train, seed=args.seed)
