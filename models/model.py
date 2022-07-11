@@ -95,12 +95,12 @@ class MlpMixer(nn.Module):
 if __name__ == '__main__':
     from configs import get_mixer_b16_config
     config = get_mixer_b16_config()
-    model = MlpMixer(config, img_size=32)
+    model = MlpMixer(config, img_size=224)
     functional.set_step_mode(model, 'm')
     print(model)
 
-    encode_img = (torch.rand([10, 1, 3, 32, 32]) * 2).int().float()
+    encode_img = (torch.rand([4, 64, 3, 224, 224]) * 2).int().float()
     print(encode_img)
 
-    out = model(encode_img)
+    out = model(encode_img).mean(0)
     print(out)
