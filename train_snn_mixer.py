@@ -349,6 +349,7 @@ class Trainer(object):
         print('Loading CIFAR10 Data...')
         dataset_train = torchvision.datasets.CIFAR10(
             root=args.data_path,
+            download=True,
             train=True,
             transform=torchvision.transforms.Compose([
                 torchvision.transforms.ToTensor(),
@@ -360,6 +361,7 @@ class Trainer(object):
         )
         dataset_test = torchvision.datasets.CIFAR10(
             root=args.data_path,
+            download=True,
             train=False,
             transform=torchvision.transforms.Compose([
                 torchvision.transforms.ToTensor(),
