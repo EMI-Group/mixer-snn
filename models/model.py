@@ -12,26 +12,46 @@ class LayerNorm(nn.LayerNorm, layer.base.StepModule):
         self.step_mode = step_mode
 
 
+class BatchNorm1d(nn.BatchNorm1d, layer.base.StepModule):
+    def __init__(self, num_features, eps=1e-5, step_mode='s'):
+        super(BatchNorm1d, self).__init__(num_features, eps)
+        self.step_mode = step_mode
+
+    def forward(self, x):
+        if self.step_mode == 's':
+            return super().forward(x)
+        elif self.step_mode == 'm':
+            return functional.seq_to_ann_forward(x, super().forward)
+
+
 class MlpBlock(nn.Module):
-    def __init__(self, hidden_dim, ff_dim):
+    def __init__(self, hidden_dim, bn_dim):
         super(MlpBlock, self).__init__()
-        self.fc0 = layer.Linear(hidden_dim, ff_dim, bias=False)
-        self.fc1 = layer.Linear(ff_dim, hidden_dim, bias=False)
+        self.fc0 = layer.Linear(hidden_dim, hidden_dim, bias=False)
+        self.lif0 = neuron.LIFNode(surrogate_function=surrogate.ATan())
+        self.bn0 = BatchNorm1d(bn_dim)
+        self.fc1 = layer.Linear(hidden_dim, hidden_dim, bias=False)
         # NOTE: LIF Node here
-        self.lif = neuron.LIFNode(surrogate_function=surrogate.ATan())
+        self.lif1 = neuron.LIFNode(surrogate_function=surrogate.ATan())
+        self.bn1 = BatchNorm1d(bn_dim)
 
     def forward(self, x):
         x = self.fc0(x)
-        x = self.lif(x)
+        x = self.bn0(x)
+        h = x
+        x = self.lif0(x)
         x = self.fc1(x)
+        x = self.bn1(x)
+        x = x + h
+        x = self.lif1(x)
         return x
 
 
 class MixerBlock(nn.Module):
     def __init__(self, config):
         super(MixerBlock, self).__init__()
-        self.token_mlp_block = MlpBlock(config.n_patches, config.tokens_mlp_dim)
-        self.channel_mlp_block = MlpBlock(config.hidden_dim, config.channels_mlp_dim)
+        self.token_mlp_block = MlpBlock(config.n_patches, config.hidden_dim)
+        self.channel_mlp_block = MlpBlock(config.hidden_dim, config.n_patches)
         self.pre_norm = LayerNorm(config.hidden_dim, eps=1e-6)
         self.post_norm = LayerNorm(config.hidden_dim, eps=1e-6)
 
@@ -62,8 +82,6 @@ class MlpMixer(nn.Module):
                                  kernel_size=patch_size,
                                  stride=patch_size)
 
-        self.stem_lif = neuron.LIFNode(surrogate_function=surrogate.ATan())
-
         self.pre_head_ln = LayerNorm(config.hidden_dim, eps=1e-6)
 
         self.head = nn.Sequential(
@@ -80,8 +98,6 @@ class MlpMixer(nn.Module):
         x = self.stem(x)
         x = x.flatten(-2)
         x = x.transpose(-1, -2)
-
-        x = self.stem_lif(x)
 
         for block in self.layer:
             x = block(x)
@@ -103,4 +119,4 @@ if __name__ == '__main__':
     print(encode_img)
 
     out = model(encode_img).mean(0)
-    print(out)
+    print(out.shape)

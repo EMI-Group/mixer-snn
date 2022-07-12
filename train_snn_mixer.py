@@ -20,7 +20,7 @@ import utils
 
 from spikingjelly.activation_based.encoding import PoissonEncoder
 from spikingjelly.activation_based import functional
-from models.configs import get_mixer_b16_config
+from models.configs import get_mixer_config
 from models.model import MlpMixer
 
 
@@ -37,7 +37,7 @@ class Trainer(object):
     def __init__(self):
         self.encoder = PoissonEncoder()
         self.model_configs = {
-            'mixer_b16': get_mixer_b16_config()
+            'mixer': get_mixer_config()
         }
 
     def main(self, args):
@@ -45,7 +45,7 @@ class Trainer(object):
         if args.output_dir:
             os.makedirs(args.output_dir, exist_ok=True)
 
-        # utils.init_distributed_mode(args)
+        utils.init_distributed_mode(args)
         print(args)
 
         device = torch.device(args.device)
@@ -76,6 +76,9 @@ class Trainer(object):
         model = self.load_model(args, num_classes)
         model.to(device)
         print(model)
+
+        if args.sync_bn:
+            model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
         criterion = nn.MSELoss()
 
@@ -174,7 +177,7 @@ class Trainer(object):
         header = f'Epoch: [{epoch}]'
         for i, (img, target) in enumerate(metric_logger.log_every(data_loader, -1, header)):
             start_time = time.time()
-            img, target = img.to(device), F.one_hot(target, num_classes=args.num_classes).to(device)
+            img, target = img.to(device), F.one_hot(target, num_classes=args.num_classes).float().to(device)
             with torch.cuda.amp.autocast(enabled=scaler is not None):
                 img = self.preprocess_train_sample(args, img)
                 output = self.process_model_output(args, model(img))
@@ -216,8 +219,8 @@ class Trainer(object):
         start_time = time.time()
         with torch.inference_mode():
             for img, target in metric_logger.log_every(data_loader, -1, header):
-                image = image.to(device, non_blocking=True)
-                target = F.one_hot(target, num_classes=args.num_classes).to(device, non_blocking=True)
+                img = img.to(device, non_blocking=True)
+                target = F.one_hot(target, num_classes=args.num_classes).float().to(device, non_blocking=True)
                 img = self.preprocess_test_sample(args, img)
                 output = self.process_model_output(args, model(img))
                 loss = criterion(output, target)
@@ -270,7 +273,7 @@ class Trainer(object):
 
     def load_model(self, args, num_classes):
         model_config = self.model_configs[args.model]
-        model = MlpMixer(model_config, num_classes=num_classes)
+        model = MlpMixer(model_config, num_classes=num_classes, patch_size=model_config.patch_size)
         functional.set_step_mode(model, 'm')
         if args.cupy:
             functional.set_backend(model, 'cupy')
@@ -377,8 +380,6 @@ class Trainer(object):
         loader_generator = torch.Generator()
         loader_generator.manual_seed(args.seed)
 
-        args.distributed = False
-
         if args.distributed:
             train_sampler = torch.utils.data.DistributedSampler(dataset=dataset_train, seed=args.seed)
             test_sampler = torch.utils.data.DistributedSampler(dataset=dataset_test, shuffle=False)
@@ -392,7 +393,7 @@ class Trainer(object):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--data-path', default='./data', type=str)
-        parser.add_argument('--model', default='mixer_b16', type=str)
+        parser.add_argument('--model', default='mixer', type=str)
         parser.add_argument('--T', default=4, type=int)
         parser.add_argument('--cupy', action='store_true')
         parser.add_argument('--device', default='cuda', type=str)
@@ -417,7 +418,8 @@ class Trainer(object):
         parser.add_argument('--seed', default=42, type=int)
         parser.add_argument('--amp', action='store_true')
         parser.add_argument('--clip-grad-norm', default=None, type=float)
-        parser.add_argument("--local_rank", type=int)
+        parser.add_argument("--local-rank", type=int)
+        parser.add_argument('--sync-bn', action='store_true')
 
         return parser
 
