@@ -10,3 +10,16 @@ def get_mixer_config():
     config.tokens_mlp_dim = 256
     config.channels_mlp_dim = 2048
     return config
+
+
+def get_multi_stage_model_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'multi_stage_model'
+    config.height = 224
+    config.width = 224
+    config.in_channels = 3
+    config.hidden_dim = 64
+    config.patch_size = 4
+    config.depth = [2, 2, 2]
+    config.num_classes = 10
+    return config

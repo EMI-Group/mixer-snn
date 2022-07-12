@@ -1,3 +1,4 @@
+import ml_collections
 import torch
 import torch.nn as nn
 from spikingjelly.activation_based import neuron, layer, surrogate, functional
@@ -141,22 +142,22 @@ class SNNPatchPartition(nn.Module):
 
 
 class SNNNet(nn.Module):
-    def __init__(self, height, width, in_channels, hidden_dim, patch_size, depth, num_classes):
+    def __init__(self, config):
         super(SNNNet, self).__init__()
-        self.partition = SNNPatchPartition(in_channels, hidden_dim, patch_size)
-        height = height // patch_size
-        width = width // patch_size
+        self.partition = SNNPatchPartition(config.in_channels, config.hidden_dim, config.patch_size)
+        height = config.height // config.patch_size
+        width = config.width // config.patch_size
         self.stages = nn.ModuleList()
-        model_c = hidden_dim
-        for i in range(len(depth)):
-            i_depth = depth[i]
+        model_c = config.hidden_dim
+        for i in range(len(config.depth)):
+            i_depth = config.depth[i]
             i_stage = SNNStageBlock(height // (2 ** i), width // (2 ** i), model_c, i_depth)
             self.stages.append(i_stage)
             model_c = model_c * 2
 
         self.avg = layer.AdaptiveAvgPool2d((1, 1))
         self.head = nn.Sequential(
-            layer.Linear(model_c, num_classes),
+            layer.Linear(model_c, config.num_classes),
             neuron.LIFNode(surrogate_function=surrogate.ATan())
         )
 
@@ -171,10 +172,10 @@ class SNNNet(nn.Module):
 
 if __name__ == '__main__':
     T, N, C, H, W = 2, 2, 3, 224, 224
-    patch_size = 4
-    hidden_dim = 128
     x = torch.rand([T, N, C, H, W])
-    net = SNNNet(H, W, C, hidden_dim, patch_size, [2, 3, 3], 10)
+    from configs import get_multi_stage_model_config
+    config = get_multi_stage_model_config()
+    net = SNNNet(config)
     functional.set_step_mode(net, 'm')
     out = net(x)
     print(out.shape)
