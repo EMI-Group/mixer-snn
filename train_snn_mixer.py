@@ -20,8 +20,8 @@ import utils
 
 from spikingjelly.activation_based.encoding import PoissonEncoder
 from spikingjelly.activation_based import functional
-from models.configs import get_mixer_config
-from models.model import MlpMixer
+from models.configs import get_mixer_config, get_mixer_v1_config
+from models.model_mixer_v1 import MixerNet
 
 
 def set_deterministic(_seed_: int = 2022):
@@ -35,9 +35,9 @@ def set_deterministic(_seed_: int = 2022):
 
 class Trainer(object):
     def __init__(self):
-        self.encoder = PoissonEncoder()
         self.model_configs = {
-            'mixer': get_mixer_config()
+            'mixer': get_mixer_config(),
+            'mixer_v1': get_mixer_v1_config()
         }
 
     def main(self, args):
@@ -255,11 +255,11 @@ class Trainer(object):
 
     def preprocess_train_sample(self, args, x):
         x = x.unsqueeze(0).repeat(args.T, 1, 1, 1, 1)
-        return self.encoder(x)
+        return x
 
     def preprocess_test_sample(self, args, x):
         x = x.unsqueeze(0).repeat(args.T, 1, 1, 1, 1)
-        return self.encoder(x)
+        return x
 
     def process_model_output(self, args, y):
         return y.mean(0)
@@ -273,7 +273,8 @@ class Trainer(object):
 
     def load_model(self, args, num_classes):
         model_config = self.model_configs[args.model]
-        model = MlpMixer(model_config, num_classes=num_classes, patch_size=model_config.patch_size)
+        model_config.num_classes = num_classes
+        model = MixerNet(model_config)
         functional.set_step_mode(model, 'm')
         if args.cupy:
             functional.set_backend(model, 'cupy')
@@ -356,7 +357,9 @@ class Trainer(object):
             train=True,
             transform=torchvision.transforms.Compose([
                 torchvision.transforms.ToTensor(),
-                torchvision.transforms.RandomResizedCrop(224),
+                torchvision.transforms.RandomHorizontalFlip(),
+                torchvision.transforms.RandomVerticalFlip(),
+                torchvision.transforms.RandomCrop(32),
                 torchvision.transforms.Normalize(
                     mean=(0.4914, 0.4822, 0.4465),
                     std=(0.2023, 0.1994, 0.2010),
@@ -369,7 +372,6 @@ class Trainer(object):
             train=False,
             transform=torchvision.transforms.Compose([
                 torchvision.transforms.ToTensor(),
-                torchvision.transforms.Resize(224),
                 torchvision.transforms.Normalize(
                     mean=(0.4914, 0.4822, 0.4465),
                     std=(0.2023, 0.1994, 0.2010),

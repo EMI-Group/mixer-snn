@@ -12,6 +12,15 @@ def get_mixer_config():
     return config
 
 
+def get_mixer_v1_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'mixer_v1'
+    config.patch_size = 4
+    config.hidden_dim = 256
+    config.num_blocks = 8
+    return config
+
+
 def get_multi_stage_model_config():
     config = ml_collections.ConfigDict()
     config.name = 'multi_stage_model'
