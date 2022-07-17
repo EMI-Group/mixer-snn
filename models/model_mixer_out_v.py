@@ -21,11 +21,11 @@ class MlpBlock(nn.Module):
         super(MlpBlock, self).__init__()
         self.fc1 = layer.Linear(hidden_dim, hidden_dim)
         self.norm1 = LayerNorm(hidden_dim)
-        self.lif1 = neuron.LIFNode(surrogate_function=surrogate.ATan())
+        self.lif1 = neuron.LIFNode(surrogate_function=surrogate.Sigmoid())
 
         self.fc2 = layer.Linear(hidden_dim, hidden_dim)
         self.norm2 = LayerNorm(hidden_dim)
-        self.lif2 = neuron.LIFNode(surrogate_function=surrogate.ATan())
+        self.lif2 = neuron.LIFNode(surrogate_function=surrogate.Sigmoid())
 
     def forward(self, x):
         x = self.norm1(self.fc1(x))
@@ -51,31 +51,47 @@ class MixerBlock(nn.Module):
         return x
 
 
+class VLIFNode(neuron.LIFNode):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @property
+    def supported_backends(self):
+        return ('torch',)
+
+    def single_step_forward(self, x: torch.Tensor):
+        self.neuronal_charge(x)
+        y = self.v
+        spike = self.neuronal_fire()
+        y = y * spike
+        self.neuronal_reset(spike)
+        return y
+
+
 class MixerNet(nn.Module):
     def __init__(self, config):
         super(MixerNet, self).__init__()
         config.n_patches = (config.img_size // config.patch_size) ** 2
 
+        patch_h = patch_w = config.img_size // config.patch_size
+
         self.encoder = nn.Sequential(
-            layer.Conv2d(3, config.hidden_dim, kernel_size=3, stride=1, padding=1, bias=False),
-            layer.BatchNorm2d(config.hidden_dim),
-            neuron.LIFNode(surrogate_function=surrogate.ATan()),
+            layer.Conv2d(3, config.hidden_dim, kernel_size=3, stride=1, padding=1),
+            LayerNorm([config.img_size, config.img_size]),
+            neuron.IFNode(surrogate_function=surrogate.Sigmoid()),
         )
 
-        self.patcher = layer.Conv2d(
-            config.hidden_dim,
-            config.hidden_dim,
-            kernel_size=config.patch_size,
-            stride=config.patch_size
+        self.patcher = nn.Sequential(
+            layer.Conv2d(config.hidden_dim, config.hidden_dim, kernel_size=config.patch_size, stride=config.patch_size),
+            LayerNorm([patch_h, patch_w])
         )
 
         self.classifier_norm = LayerNorm(config.hidden_dim)
 
         self.classifier = nn.Sequential(
             layer.Linear(config.hidden_dim, config.num_classes),
-            neuron.LIFNode(surrogate_function=surrogate.ATan()),
+            VLIFNode(surrogate_function=surrogate.Sigmoid())
         )
-
         self.blocks = nn.ModuleList()
         for _ in range(config.num_blocks):
             self.blocks.append(MixerBlock(config))
@@ -90,22 +106,19 @@ class MixerNet(nn.Module):
 
         x = self.classifier_norm(x)
         x = torch.mean(x, dim=-2)
-        out_fr = self.classifier(x)
-
-        return out_fr
+        out = self.classifier(x)
+        return out
 
 
 if __name__ == '__main__':
     from configs import get_mixer_v1_config
+
     config = get_mixer_v1_config()
     config.num_classes = 10
     config.img_size = 32
     model = MixerNet(config)
     functional.set_step_mode(model, 'm')
-    print(model)
 
     img = torch.rand([4, 1, 3, 32, 32])
-    print(img)
-
     out = model(img).mean(0)
     print(out)

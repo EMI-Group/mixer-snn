@@ -16,12 +16,13 @@ import sys
 
 import torchvision.datasets
 
+import models.model_mixer_out_fr
+import models.model_mixer_out_v
+import models.model_mixer_var_dim
+import models.configs
 import utils
 
-from spikingjelly.activation_based.encoding import PoissonEncoder
 from spikingjelly.activation_based import functional
-from models.configs import get_mixer_config, get_mixer_v1_config
-from models.model_mixer_v1 import MixerNet
 
 
 def set_deterministic(_seed_: int = 2022):
@@ -35,9 +36,19 @@ def set_deterministic(_seed_: int = 2022):
 
 class Trainer(object):
     def __init__(self):
-        self.model_configs = {
-            'mixer': get_mixer_config(),
-            'mixer_v1': get_mixer_v1_config()
+        self.models = {
+            'mixer_out_fr': {
+                'model': models.model_mixer_out_fr.MixerNet,
+                'config': models.configs.get_mixer_v4_config()
+            },
+            'mixer_out_v': {
+                'model': models.model_mixer_out_v.MixerNet,
+                'config': models.configs.get_mixer_cls_v_config()
+            },
+            'mixer_var_dim': {
+                'model': models.model_mixer_var_dim.MixerNet,
+                'config': models.configs.get_mixer_var_dim_config()
+            }
         }
 
     def main(self, args):
@@ -205,9 +216,10 @@ class Trainer(object):
             metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
             metric_logger.meters['img/s'].update(batch_size / (time.time() - start_time))
 
+
         metric_logger.synchronize_between_processes()
         train_loss, train_acc1, train_acc5 = metric_logger.loss.global_avg, metric_logger.acc1.global_avg, metric_logger.acc5.global_avg
-        print(f'Train: train_acc1={train_acc1:.3f}, train_acc5={train_acc5:.3f}, train_loss={train_loss:.6f}, samples/s={metric_logger.meters["img/s"]}')
+        print(f'Train: train_acc1={train_acc1:.3f}, train_acc5={train_acc5:.3f}, train_loss={train_loss:.6f}, samples/s={metric_logger.meters["img/s"]}, lr={metric_logger.lr.value}')
         return train_loss, train_acc1, train_acc5
 
     def evaluate(self, args, model, criterion, data_loader, device, log_suffix=""):
@@ -269,12 +281,18 @@ class Trainer(object):
         return acc1, acc5
 
     def load_data(self, args):
-        return self.load_CIFAR10(args)
+        if args.data == 'imagenet':
+            return self.load_ImageNet(args)
+        elif args.data == 'cifar10':
+            return self.load_CIFAR10(args)
+        else:
+            raise NotImplementedError()
 
     def load_model(self, args, num_classes):
-        model_config = self.model_configs[args.model]
-        model_config.num_classes = num_classes
-        model = MixerNet(model_config)
+        model_dict = self.models[args.model]
+        config = model_dict['config']
+        config.num_classes = num_classes
+        model = model_dict['model'](config)
         functional.set_step_mode(model, 'm')
         if args.cupy:
             functional.set_backend(model, 'cupy')
@@ -346,7 +364,7 @@ class Trainer(object):
 
     def get_logdir_name(self, args):
         dir_name = f'{args.model}_b{args.batch_size}_e{args.epochs}' \
-                   f'_{args.opt}_lr{args.lr}_wd{args.weight_decay}_seed{args.seed}'
+                   f'_{args.opt}_lr{args.lr}_wd{args.weight_decay}_seed{args.seed}_T{args.T}_data{args.data}'
         return dir_name
 
     def load_CIFAR10(self, args):
@@ -359,7 +377,6 @@ class Trainer(object):
                 torchvision.transforms.ToTensor(),
                 torchvision.transforms.RandomHorizontalFlip(),
                 torchvision.transforms.RandomVerticalFlip(),
-                torchvision.transforms.RandomCrop(32),
                 torchvision.transforms.Normalize(
                     mean=(0.4914, 0.4822, 0.4465),
                     std=(0.2023, 0.1994, 0.2010),
@@ -391,9 +408,49 @@ class Trainer(object):
 
         return dataset_train, dataset_test, train_sampler, test_sampler
 
+    def load_ImageNet(self, args):
+        print('Loading ImageNet Data...')
+        train_path = os.path.join(args.data_path, 'train')
+        val_path = os.path.join(args.data_path, 'val')
+
+        train_transform = torchvision.transforms.Compose([
+            torchvision.transforms.RandomResizedCrop(224),
+            torchvision.transforms.RandomHorizontalFlip(),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+        ])
+
+        val_transform = torchvision.transforms.Compose([
+            torchvision.transforms.Resize(224),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+        ])
+
+        dataset_train = torchvision.datasets.ImageFolder(root=train_path, transform=train_transform)
+        dataset_val = torchvision.datasets.ImageFolder(root=val_path, transform=val_transform)
+
+        loader_generator = torch.Generator()
+        loader_generator.manual_seed(args.seed)
+
+        if args.distributed:
+            train_sampler = torch.utils.data.DistributedSampler(dataset=dataset_train, seed=args.seed)
+            val_sampler = torch.utils.data.DistributedSampler(dataset=dataset_val, shuffle=False)
+        else:
+            train_sampler = torch.utils.data.RandomSampler(data_source=dataset_train, generator=loader_generator)
+            val_sampler = torch.utils.data.SequentialSampler(data_source=dataset_val)
+
+        return dataset_train, dataset_val, train_sampler, val_sampler
+
     def get_args_parser(self):
         parser = argparse.ArgumentParser()
 
+        parser.add_argument('--data', default='cifar10', type=str)
         parser.add_argument('--data-path', default='./data', type=str)
         parser.add_argument('--model', default='mixer', type=str)
         parser.add_argument('--T', default=4, type=int)
@@ -420,7 +477,7 @@ class Trainer(object):
         parser.add_argument('--seed', default=42, type=int)
         parser.add_argument('--amp', action='store_true')
         parser.add_argument('--clip-grad-norm', default=None, type=float)
-        parser.add_argument("--local-rank", type=int)
+        parser.add_argument("--local_rank", type=int)
         parser.add_argument('--sync-bn', action='store_true')
 
         return parser

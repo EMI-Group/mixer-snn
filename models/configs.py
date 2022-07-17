@@ -17,7 +17,74 @@ def get_mixer_v1_config():
     config.name = 'mixer_v1'
     config.patch_size = 4
     config.hidden_dim = 256
-    config.num_blocks = 8
+    config.num_blocks = 4
+    config.img_size = 32
+    return config
+
+
+def get_mixer_v2_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'mixer_v2'
+    config.patch_size = 4
+    config.hidden_dim = 512
+    config.num_blocks = 4
+    config.img_size = 32
+    return config
+
+
+def get_mixer_v3_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'mixer_v3'
+    config.patch_size = 4
+    config.hidden_dim = 512
+    config.num_blocks = 4
+    config.img_size = 32
+    return config
+
+
+def get_mixer_v4_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'mixer_v4'
+    config.patch_size = 4
+    config.hidden_dim = 256
+    config.num_blocks = 4
+    config.img_size = 32
+    return config
+
+
+def get_mixer_v5_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'mixer_v5'
+    config.patch_size = 4
+    config.hidden_dim = 256
+    config.encode_dim = 64
+    config.num_blocks = 4
+    config.img_size = 32
+    return config
+
+
+def get_mixer_cls_v_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'mixer_cls_v'
+    config.patch_size = 4
+    config.hidden_dim = 1024
+    config.num_blocks = 4
+    config.img_size = 32
+    return config
+
+
+def get_mixer_var_dim_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'mixer_var_dim'
+    config.patch_size = 4
+    config.encode_dim = 64
+    config.channel_dim = 128
+    config.p_dropout = 0.2
+    config.token_hidden_dim = 128
+    config.channel_hidden_dim = 256
+    config.num_blocks = 4
+    config.img_size = 32
+    config.v_threshold = 0.5
     return config
 
 
