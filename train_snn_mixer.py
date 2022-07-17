@@ -112,6 +112,9 @@ class Trainer(object):
         tb_dir = os.path.join(args.output_dir, log_dir, 'tb')
         print(log_dir)
 
+        if args.clean and os.path.exists(log_dir):
+            os.removedirs(log_dir)
+
         if utils.is_main_process():
             os.makedirs(tb_dir, exist_ok=args.resume is not None)
             os.makedirs(pt_dir, exist_ok=args.resume is not None)
@@ -479,6 +482,7 @@ class Trainer(object):
         parser.add_argument('--clip-grad-norm', default=None, type=float)
         parser.add_argument("--local_rank", type=int)
         parser.add_argument('--sync-bn', action='store_true')
+        parser.add_argument('--clean', action='store_true')
 
         return parser
 
