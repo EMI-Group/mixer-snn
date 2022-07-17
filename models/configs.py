@@ -56,8 +56,8 @@ def get_mixer_v5_config():
     config = ml_collections.ConfigDict()
     config.name = 'mixer_v5'
     config.patch_size = 4
-    config.hidden_dim = 256
-    config.encode_dim = 64
+    config.hidden_dim = 512
+    config.encode_dim = 128
     config.num_blocks = 4
     config.img_size = 32
     return config

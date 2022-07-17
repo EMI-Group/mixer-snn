@@ -60,7 +60,7 @@ class MixerNet(nn.Module):
         self.encoder = nn.Sequential(
             layer.Conv2d(3, config.encode_dim, kernel_size=3, stride=1, padding=1),
             LayerNorm([config.img_size, config.img_size]),
-            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
+            neuron.IFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
         )
 
         patch_h = patch_w = (config.img_size // config.patch_size)

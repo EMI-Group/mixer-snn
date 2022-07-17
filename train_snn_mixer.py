@@ -39,7 +39,7 @@ class Trainer(object):
         self.models = {
             'mixer_out_fr': {
                 'model': models.model_mixer_out_fr.MixerNet,
-                'config': models.configs.get_mixer_v4_config()
+                'config': models.configs.get_mixer_v5_config()
             },
             'mixer_out_v': {
                 'model': models.model_mixer_out_v.MixerNet,
@@ -112,13 +112,12 @@ class Trainer(object):
         tb_dir = os.path.join(args.output_dir, log_dir, 'tb')
         print(log_dir)
 
-        if args.clean and utils.is_main_process():
-            for root, dirs, files in os.walk(log_dir, topdown=False):
-                for name in files:
-                    os.remove(os.path.join(root, name))
-                for name in dirs:
-                    os.rmdir(os.path.join(root, name))
-                os.rmdir(root)
+        if args.clean and os.path.exists(log_dir) and utils.is_main_process():
+            if os.path.exists(tb_dir):
+                os.remove(tb_dir)
+            if os.path.exists(pt_dir):
+                os.remove(pt_dir)
+                print(f'remove {tb_dir} and {pt_dir}.')
 
         if utils.is_main_process():
             os.makedirs(tb_dir, exist_ok=args.resume is not None)
@@ -372,7 +371,7 @@ class Trainer(object):
 
     def get_logdir_name(self, args):
         dir_name = f'{args.model}_b{args.batch_size}_e{args.epochs}' \
-                   f'_{args.opt}_lr{args.lr}_wd{args.weight_decay}_seed{args.seed}_T{args.T}_data{args.data}'
+                   f'_{args.opt}_lr{args.lr}_wd{args.weight_decay}_seed{args.seed}_T{args.T}_{args.data}'
         return dir_name
 
     def load_CIFAR10(self, args):
