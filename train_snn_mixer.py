@@ -13,6 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import os
 import sys
+import shutil
 
 import torchvision.datasets
 
@@ -113,11 +114,7 @@ class Trainer(object):
         print(log_dir)
 
         if args.clean and os.path.exists(log_dir) and utils.is_main_process():
-            if os.path.exists(tb_dir):
-                os.remove(tb_dir)
-            if os.path.exists(pt_dir):
-                os.remove(pt_dir)
-                print(f'remove {tb_dir} and {pt_dir}.')
+            shutil.rmtree(log_dir)
 
         if utils.is_main_process():
             os.makedirs(tb_dir, exist_ok=args.resume is not None)
