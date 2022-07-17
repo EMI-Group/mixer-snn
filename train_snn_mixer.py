@@ -112,8 +112,13 @@ class Trainer(object):
         tb_dir = os.path.join(args.output_dir, log_dir, 'tb')
         print(log_dir)
 
-        if args.clean and os.path.exists(log_dir):
-            os.removedirs(log_dir)
+        if args.clean and utils.is_main_process():
+            for root, dirs, files in os.walk(log_dir, topdown=False):
+                for name in files:
+                    os.remove(os.path.join(root, name))
+                for name in dirs:
+                    os.rmdir(os.path.join(root, name))
+                os.rmdir(root)
 
         if utils.is_main_process():
             os.makedirs(tb_dir, exist_ok=args.resume is not None)

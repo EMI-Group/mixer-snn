@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch --nproc_per_node=8 train_snn_mixer.py  --cupy --T 8 --batch-size 64 --model mixer_out_fr --epochs 100 --data cifar10 --clean
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch --nproc_per_node=8 train_snn_mixer.py  --cupy --T 4 --batch-size 64 --model mixer_out_fr --epochs 100 --data cifar10 --clean
