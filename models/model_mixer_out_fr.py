@@ -74,8 +74,6 @@ class MixerNet(nn.Module):
             neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
         )
 
-        patch_h = patch_w = (config.img_size // config.patch_size)
-
         self.patcher = nn.Sequential(
             layer.Conv2d(config.encode_dim, config.hidden_dim, kernel_size=config.patch_size, stride=config.patch_size),
             layer.BatchNorm2d(config.hidden_dim)
