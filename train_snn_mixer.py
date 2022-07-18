@@ -155,11 +155,10 @@ class Trainer(object):
             }
             if args.record_fire_rate:
                 eval_result['fr_records'] = {layer: fr_monitor[layer] for layer in fr_monitor.monitored_layers}
-            utils.save_on_master(eval_result, os.path.join(log_dir, 'eval_result.pth'))
+            utils.save_on_master(eval_result, os.path.join(args.output_dir, log_dir, 'eval_result.pth'))
 
             if args.record_fire_rate:
-                records = fr_monitor.records
-                print(records)
+                print(eval_result['fr_records'])
                 fr_monitor.remove_hooks()
                 del fr_monitor
 
