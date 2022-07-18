@@ -4,6 +4,8 @@ import torch.distributed as dist
 from collections import defaultdict, deque
 import time
 import datetime
+import spikingjelly.visualizing
+import matplotlib.pyplot as plt
 
 
 def init_distributed_mode(args):
@@ -95,6 +97,41 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].flatten().sum(dtype=torch.float32)
             res.append(correct_k * (100.0 / batch_size))
         return res
+
+
+def cal_fire_rate(s_seq):
+    return torch.mean(s_seq, dim=(0, 1))
+
+
+def plot_eval_fire_rate(eval_result_path, max_neuron_num=20, max_layers_num=10):
+    eval_result = torch.load(eval_result_path)
+    layers_fr = {}
+    for layer, records in eval_result['fr_records'].items():
+        avg_fr = torch.mean(torch.cat([r.cpu().unsqueeze(0) for r in records], dim=0), dim=0)
+        layers_fr[layer] = avg_fr.flatten()
+    del layers_fr['module.classifier.1']
+    fr_array = torch.cat([fr.unsqueeze(0) for fr in layers_fr.values()], dim=0)
+    for layer in layers_fr:
+        print(f'{layer} avg fr: ', "%.2f" % torch.mean(layers_fr[layer]))
+    print(f'Global avg fr: ', "%.2f" % torch.mean(fr_array, dim=(0, 1)))
+    fig = spikingjelly.visualizing.plot_2d_bar_in_3d(
+        array=fr_array.numpy()[:max_layers_num, :max_neuron_num].T,
+        title='fire rate of different layers',
+        xlabel='layers',
+        ylabel='neuron index',
+        zlabel='fire rate',
+        int_x_ticks=True,
+        int_y_ticks=True,
+        int_z_ticks=False,
+        dpi=200
+    )
+    fig.show()
+
+    plt.bar(range(len(layers_fr.keys())), [torch.mean(fr) for fr in layers_fr.values()])
+    plt.xlabel('layer index')
+    plt.ylabel('fire rate avg')
+    plt.title('average fire rate of different layers')
+    plt.show()
 
 
 class SmoothedValue:
@@ -241,3 +278,6 @@ class MetricLogger:
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
         print(f"{header} Total time: {total_time_str}")
 
+
+if __name__ == '__main__':
+    plot_eval_fire_rate("./eval_result.pth")

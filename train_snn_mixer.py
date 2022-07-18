@@ -136,6 +136,9 @@ class Trainer(object):
             if utils.is_main_process():
                 max_test_acc1 = checkpoint['max_test_acc1']
 
+            print('Resume...')
+            print(f'max_test_acc1: {max_test_acc1}')
+
         if utils.is_main_process():
             tb_writer = SummaryWriter(tb_dir, purge_step=args.start_epoch)
             with open(os.path.join(args.output_dir, log_dir, 'args.txt'), 'w', encoding='utf-8') as args_txt:
@@ -145,7 +148,7 @@ class Trainer(object):
 
         if args.test_only:
             if args.record_fire_rate:
-                fr_monitor = monitor.OutputMonitor(model, neuron.LIFNode, self.cal_fire_rate)
+                fr_monitor = monitor.OutputMonitor(model, neuron.LIFNode, utils.cal_fire_rate)
 
             test_loss, test_acc1, test_acc5 = self.evaluate(args, model, criterion, dataloader_test, device)
             eval_result = {
@@ -305,9 +308,6 @@ class Trainer(object):
     def cal_acc1_acc5(self, output, target):
         acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
         return acc1, acc5
-
-    def cal_fire_rate(self, s_seq):
-        return torch.mean(s_seq, dim=(0, 1))
 
     def load_data(self, args):
         if args.data == 'imagenet':
