@@ -23,7 +23,7 @@ import models.model_mixer_var_dim
 import models.configs
 import utils
 
-from spikingjelly.activation_based import functional
+from spikingjelly.activation_based import functional, monitor, neuron
 
 
 def set_deterministic(_seed_: int = 2022):
@@ -142,6 +142,28 @@ class Trainer(object):
                 args_txt.write(str(args))
                 args_txt.write('\n')
                 args_txt.write(' '.join(sys.argv))
+
+        if args.test_only:
+            if args.record_fire_rate:
+                fr_monitor = monitor.OutputMonitor(model, neuron.LIFNode, self.cal_fire_rate)
+
+            test_loss, test_acc1, test_acc5 = self.evaluate(args, model, criterion, dataloader_test, device)
+            eval_result = {
+                'test_loss': test_loss,
+                'test_acc1': test_acc1,
+                'test_acc5': test_acc5,
+            }
+            if args.record_fire_rate:
+                eval_result['fr_records'] = {layer: fr_monitor[layer] for layer in fr_monitor.monitored_layers}
+            utils.save_on_master(eval_result, os.path.join(log_dir, 'eval_result.pth'))
+
+            if args.record_fire_rate:
+                records = fr_monitor.records
+                print(records)
+                fr_monitor.remove_hooks()
+                del fr_monitor
+
+            return
 
         for epoch in range(args.start_epoch, args.epochs):
             start_time = time.time()
@@ -267,6 +289,7 @@ class Trainer(object):
 
         test_loss, test_acc1, test_acc5 = metric_logger.loss.global_avg, metric_logger.acc1.global_avg, metric_logger.acc5.global_avg
         print(f'Test: test_acc1={test_acc1:.3f}, test_acc5={test_acc5:.3f}, test_loss={test_loss:.6f}, samples/s={num_processed_samples / (time.time() - start_time):.3f}')
+
         return test_loss, test_acc1, test_acc5
 
     def preprocess_train_sample(self, args, x):
@@ -283,6 +306,9 @@ class Trainer(object):
     def cal_acc1_acc5(self, output, target):
         acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
         return acc1, acc5
+
+    def cal_fire_rate(self, s_seq):
+        return torch.mean(s_seq, dim=(0, 1))
 
     def load_data(self, args):
         if args.data == 'imagenet':
@@ -484,6 +510,8 @@ class Trainer(object):
         parser.add_argument("--local_rank", type=int)
         parser.add_argument('--sync-bn', action='store_true')
         parser.add_argument('--clean', action='store_true')
+        parser.add_argument('--record-fire-rate', action='store_true')
+        parser.add_argument('--test-only', action='store_true')
 
         return parser
 
