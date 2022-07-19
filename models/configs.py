@@ -77,14 +77,11 @@ def get_mixer_var_dim_config():
     config = ml_collections.ConfigDict()
     config.name = 'mixer_var_dim'
     config.patch_size = 4
-    config.encode_dim = 64
-    config.channel_dim = 128
-    config.p_dropout = 0.2
-    config.token_hidden_dim = 128
-    config.channel_hidden_dim = 256
+    config.encode_dim = 512
+    config.token_hidden_dim = 256
+    config.channel_hidden_dim = 2048
     config.num_blocks = 4
     config.img_size = 32
-    config.v_threshold = 0.5
     return config
 
 
