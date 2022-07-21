@@ -82,6 +82,7 @@ def get_mixer_var_dim_config():
     config.channel_hidden_dim = 2048
     config.num_blocks = 4
     config.img_size = 32
+    config.voting_num = 10
     return config
 
 

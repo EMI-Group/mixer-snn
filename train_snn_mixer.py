@@ -404,8 +404,8 @@ class Trainer(object):
             train=True,
             transform=torchvision.transforms.Compose([
                 torchvision.transforms.ToTensor(),
+                torchvision.transforms.RandomCrop(32, padding=4),
                 torchvision.transforms.RandomHorizontalFlip(),
-                torchvision.transforms.RandomVerticalFlip(),
                 torchvision.transforms.Normalize(
                     mean=(0.4914, 0.4822, 0.4465),
                     std=(0.2023, 0.1994, 0.2010),

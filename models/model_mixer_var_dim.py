@@ -4,18 +4,6 @@ import torch.nn as nn
 from spikingjelly.activation_based import neuron, layer, surrogate, functional
 
 
-class LayerNorm(nn.LayerNorm, layer.base.StepModule):
-    def __init__(self, normalized_shape, eps=1e-5, step_mode='s'):
-        super(LayerNorm, self).__init__(normalized_shape, eps)
-        self.step_mode = step_mode
-
-    def forward(self, x):
-        if self.step_mode == 's':
-            return super().forward(x)
-        elif self.step_mode == 'm':
-            return functional.seq_to_ann_forward(x, super().forward)
-
-
 class BatchNorm1d(nn.BatchNorm1d, layer.base.StepModule):
     def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True, track_running_stats=True, step_mode='s'):
         super().__init__(num_features, eps, momentum, affine, track_running_stats)
@@ -55,7 +43,6 @@ class MlpBlock(nn.Module):
         return x
 
 
-
 class MixerBlock(nn.Module):
     def __init__(self, config):
         super(MixerBlock, self).__init__()
@@ -89,13 +76,16 @@ class MixerNet(nn.Module):
         self.classifier_norm = BatchNorm1d(config.n_patches)
 
         self.classifier = nn.Sequential(
-            layer.Linear(config.encode_dim, config.num_classes),
+            layer.Linear(config.encode_dim, config.num_classes * config.voting_num),
             neuron.LIFNode(surrogate_function=surrogate.Sigmoid(spiking=False), detach_reset=True),
+            layer.VotingLayer(config.voting_num)
         )
 
         self.blocks = nn.ModuleList()
         for _ in range(config.num_blocks):
             self.blocks.append(MixerBlock(config))
+
+        self._initialize_weights()
 
     def forward(self, x):
         x = self.encoder(x)
@@ -110,6 +100,19 @@ class MixerNet(nn.Module):
         out_fr = self.classifier(x)
 
         return out_fr
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, layer.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, layer.BatchNorm2d) or isinstance(m, BatchNorm1d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, layer.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
 
 
 if __name__ == '__main__':
