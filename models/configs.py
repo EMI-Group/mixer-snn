@@ -97,3 +97,16 @@ def get_multi_stage_model_config():
     config.depth = [2, 2, 2]
     config.num_classes = 10
     return config
+
+
+def get_model_mixer_modify_res_v1_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'model_mixer_modify_res_v1'
+    config.patch_size = 4
+    config.encode_dim = 512
+    config.token_hidden_dim = 256
+    config.channel_hidden_dim = 2048
+    config.num_blocks = 4
+    config.img_size = 32
+    config.voting_num = 10
+    return config

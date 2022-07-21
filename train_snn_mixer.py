@@ -20,6 +20,7 @@ import torchvision.datasets
 import models.model_mixer_out_fr
 import models.model_mixer_out_v
 import models.model_mixer_var_dim
+import models.model_mixer_modify_res_v1
 import models.configs
 import utils
 
@@ -49,6 +50,10 @@ class Trainer(object):
             'mixer_var_dim': {
                 'model': models.model_mixer_var_dim.MixerNet,
                 'config': models.configs.get_mixer_var_dim_config()
+            },
+            'model_mixer_modify_res_v1': {
+                'model': models.model_mixer_modify_res_v1.MixerNet,
+                'config': models.configs.get_model_mixer_modify_res_v1_config()
             }
         }
 
