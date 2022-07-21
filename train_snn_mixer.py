@@ -148,7 +148,7 @@ class Trainer(object):
 
         if args.test_only:
             if args.record_fire_rate:
-                fr_monitor = monitor.OutputMonitor(model, neuron.LIFNode, utils.cal_fire_rate)
+                fr_monitor = monitor.OutputMonitor(model, neuron.BaseNode, utils.cal_fire_rate)
 
             test_loss, test_acc1, test_acc5 = self.evaluate(args, model, criterion, dataloader_test, device)
             eval_result = {
@@ -453,7 +453,7 @@ class Trainer(object):
         ])
 
         val_transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize(224),
+            torchvision.transforms.Resize((224, 224)),
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize(
                 mean=[0.485, 0.456, 0.406],
