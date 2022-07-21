@@ -19,29 +19,22 @@ class BatchNorm1d(nn.BatchNorm1d, layer.base.StepModule):
 class MlpBlock(nn.Module):
     def __init__(self, dim, hidden_dim, bn_dim):
         super(MlpBlock, self).__init__()
-        self.fc1 = layer.Linear(dim, hidden_dim)
-        self.norm1 = BatchNorm1d(bn_dim)
-        self.lif1 = neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True)
+        self.skip_bn = BatchNorm1d(bn_dim)
 
-        self.fc2 = layer.Linear(hidden_dim, hidden_dim)
-        self.norm2 = BatchNorm1d(bn_dim)
-        self.lif2 = neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True)
+        self.mlp = nn.Sequential(
+            layer.Linear(dim, hidden_dim),
+            BatchNorm1d(bn_dim),
+            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
+            layer.Linear(hidden_dim, dim),
+            BatchNorm1d(bn_dim)
+        )
 
-        self.fc3 = layer.Linear(hidden_dim, dim)
-        self.norm3 = BatchNorm1d(bn_dim)
-        self.lif3 = neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True)
+        self.lif = neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True)
 
     def forward(self, x):
-        x = self.norm1(self.fc1(x))
-        h = x
-        x = self.lif1(x)
-
-        x = self.norm2(self.fc2(x))
-        x = x + h
-        x = self.lif2(x)
-
-        x = self.norm3(self.fc3(x))
-        x = self.lif3(x)
+        h = self.skip_bn(x)
+        x = self.mlp(x) + h
+        x = self.lif(x)
         return x
 
 
