@@ -109,7 +109,6 @@ def plot_eval_fire_rate(eval_result_path, max_neuron_num=20, max_layers_num=10):
     for layer, records in eval_result['fr_records'].items():
         avg_fr = torch.mean(torch.cat([r.cpu().unsqueeze(0) for r in records], dim=0), dim=0)
         layers_fr[layer] = avg_fr.flatten()
-    del layers_fr['module.classifier.1']
     fr_array = torch.cat([fr.unsqueeze(0) for fr in layers_fr.values()], dim=0)
     for layer in layers_fr:
         print(f'{layer} avg fr: ', "%.2f" % torch.mean(layers_fr[layer]))
