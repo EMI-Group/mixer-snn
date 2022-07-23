@@ -43,17 +43,12 @@ class MixerBlock(nn.Module):
         super(MixerBlock, self).__init__()
         self.token_mlp_block = MlpBlock(config.n_patches, config.token_hidden_dim, config.encode_dim)
         self.channel_mlp_block = MlpBlock(config.encode_dim, config.channel_hidden_dim, config.n_patches)
-        self.skip_bn = BatchNorm1d(config.n_patches)
-        self.lif = neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True)
 
     def forward(self, x):
-        h = x
         x = x.transpose(-1, -2)
         x = self.token_mlp_block(x)
         x = x.transpose(-1, -2)
         x = self.channel_mlp_block(x)
-        x = x + self.skip_bn(h)
-        x = self.lif(x)
         return x
 
 
@@ -62,15 +57,12 @@ class MixerNet(nn.Module):
         super(MixerNet, self).__init__()
         config.n_patches = (config.img_size // config.patch_size) ** 2
 
+        self.patcher = layer.Conv2d(3, config.encode_dim // 2, kernel_size=config.patch_size, stride=config.patch_size, bias=False)
+
         self.encoder = nn.Sequential(
-            layer.Conv2d(3, config.encode_dim, kernel_size=3, stride=1, padding=1),
+            layer.Conv2d(config.encode_dim // 2, config.encode_dim, kernel_size=1, stride=1),
             layer.BatchNorm2d(config.encode_dim),
             neuron.IFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
-        )
-
-        self.patcher = nn.Sequential(
-            layer.Conv2d(config.encode_dim, config.encode_dim, kernel_size=config.patch_size, stride=config.patch_size),
-            layer.BatchNorm2d(config.encode_dim)
         )
 
         self.classifier_norm = BatchNorm1d(config.n_patches)
@@ -86,8 +78,8 @@ class MixerNet(nn.Module):
             self.blocks.append(MixerBlock(config))
 
     def forward(self, x):
-        x = self.encoder(x)
         x = self.patcher(x)
+        x = self.encoder(x)
         x = x.flatten(-2).transpose(-1, -2)
 
         for block in self.blocks:
