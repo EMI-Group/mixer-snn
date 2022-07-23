@@ -30,11 +30,12 @@ class MlpBlock(nn.Module):
         )
 
         self.lif = neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True)
+        self.dropout = layer.Dropout(0.25)
 
     def forward(self, x):
         h = self.skip_bn(x)
         x = self.mlp(x) + h
-        x = self.lif(x)
+        x = self.dropout(self.lif(x))
         return x
 
 
