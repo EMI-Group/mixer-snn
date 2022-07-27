@@ -110,3 +110,29 @@ def get_model_mixer_modify_res_v1_config():
     config.img_size = 32
     config.voting_num = 10
     return config
+
+
+def get_model_mixer_modify_res_v2_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'model_mixer_modify_res_v2'
+    config.patch_size = 4
+    config.encode_dim = 768
+    config.token_hidden_dim = 128
+    config.channel_hidden_dim = 2048
+    config.num_blocks = 2
+    config.img_size = 32
+    config.voting_num = 10
+    return config
+
+
+def get_model_mixer_modify_res_v2_imagenet_config():
+    config = ml_collections.ConfigDict()
+    config.name = 'model_mixer_modify_res_v2_imagenet'
+    config.patch_size = 32
+    config.encode_dim = 768
+    config.token_hidden_dim = 256
+    config.channel_hidden_dim = 2048
+    config.num_blocks = 2
+    config.img_size = 224
+    config.voting_num = 10
+    return config

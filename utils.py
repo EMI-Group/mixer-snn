@@ -133,6 +133,12 @@ def plot_eval_fire_rate(eval_result_path, max_neuron_num=20, max_layers_num=10):
     plt.show()
 
 
+def count_parameters(model):
+    print([p.shape for p in model.parameters() if p.requires_grad])
+    params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return params/1000000
+
+
 class SmoothedValue:
     """Track a series of values and provide access to smoothed values over a
     window or the global series average.

@@ -21,6 +21,7 @@ import models.model_mixer_out_fr
 import models.model_mixer_out_v
 import models.model_mixer_var_dim
 import models.model_mixer_modify_res_v1
+import models.model_mixer_modify_res_v2
 import models.configs
 import utils
 
@@ -54,6 +55,10 @@ class Trainer(object):
             'model_mixer_modify_res_v1': {
                 'model': models.model_mixer_modify_res_v1.MixerNet,
                 'config': models.configs.get_model_mixer_modify_res_v1_config()
+            },
+            'model_mixer_modify_res_v2': {
+                'model': models.model_mixer_modify_res_v2.MixerNet,
+                'config': models.configs.get_model_mixer_modify_res_v2_imagenet_config()
             }
         }
 
@@ -330,6 +335,8 @@ class Trainer(object):
         functional.set_step_mode(model, 'm')
         if args.cupy:
             functional.set_backend(model, 'cupy')
+        num_params = utils.count_parameters(model)
+        print("Total Parameter: \t%2.1fM" % num_params)
         return model
 
     def set_optimizer(self, args, parameters):
@@ -486,7 +493,7 @@ class Trainer(object):
 
         parser.add_argument('--data', default='cifar10', type=str)
         parser.add_argument('--data-path', default='./data', type=str)
-        parser.add_argument('--model', default='mixer', type=str)
+        parser.add_argument('--model', default='model_mixer_modify_res_v2', type=str)
         parser.add_argument('--T', default=4, type=int)
         parser.add_argument('--cupy', action='store_true')
         parser.add_argument('--device', default='cuda', type=str)
@@ -523,4 +530,5 @@ class Trainer(object):
 if __name__ == '__main__':
     trainer = Trainer()
     args = trainer.get_args_parser().parse_args()
-    trainer.main(args)
+    # trainer.main(args)
+    trainer.load_model(args, 10)

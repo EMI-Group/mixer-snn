@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from spikingjelly.activation_based import neuron, layer, surrogate, functional
+from einops.layers.torch import Rearrange, Reduce
 
 
 class BatchNorm1d(nn.BatchNorm1d, layer.base.StepModule):
@@ -32,24 +33,21 @@ class MlpBlock(nn.Module):
         self.lif = neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True)
 
     def forward(self, x):
-        h = self.skip_bn(x)
-        x = self.mlp(x) + h
-        x = self.lif(x)
-        return x
+        return self.lif(self.skip_bn(x) + self.mlp(x))
 
 
 class MixerBlock(nn.Module):
     def __init__(self, config):
         super(MixerBlock, self).__init__()
-        self.token_mlp_block = MlpBlock(config.n_patches, config.token_hidden_dim, config.encode_dim)
-        self.channel_mlp_block = MlpBlock(config.encode_dim, config.channel_hidden_dim, config.n_patches)
+        self.model = nn.Sequential(
+            Rearrange('t b n c -> t b c n'),
+            MlpBlock(config.n_patches, config.token_hidden_dim, config.encode_dim),
+            Rearrange('t b c n -> t b n c'),
+            MlpBlock(config.encode_dim, config.channel_hidden_dim, config.n_patches)
+        )
 
     def forward(self, x):
-        x = x.transpose(-1, -2)
-        x = self.token_mlp_block(x)
-        x = x.transpose(-1, -2)
-        x = self.channel_mlp_block(x)
-        return x
+        return self.model(x)
 
 
 class MixerNet(nn.Module):
@@ -57,47 +55,21 @@ class MixerNet(nn.Module):
         super(MixerNet, self).__init__()
         config.n_patches = (config.img_size // config.patch_size) ** 2
 
-        self.encoder = nn.Sequential(
-            layer.Conv2d(3, config.encode_dim, kernel_size=config.patch_size, stride=config.patch_size, padding=1),
-            layer.BatchNorm2d(config.encode_dim),
-            neuron.IFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
-        )
-
-        self.patcher = nn.Sequential(
-            layer.Conv2d(config.encode_dim, config.encode_dim, kernel_size=config.patch_size, stride=config.patch_size),
-        )
-
-        self.classifier_norm = BatchNorm1d(config.n_patches)
-
-        self.classifier = nn.Sequential(
+        self.model = nn.Sequential(
+            Rearrange('t b c (h p1) (w p2) -> t b (h w) (p1 p2 c)', p1=config.patch_size, p2=config.patch_size),
+            layer.Linear((config.patch_size ** 2) * 3, config.encode_dim),
+            BatchNorm1d(config.n_patches),
+            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
+            *[MixerBlock(config) for _ in range(config.num_blocks)],
+            BatchNorm1d(config.n_patches),
+            Reduce('t b n c ->t b c', 'mean'),
             layer.Linear(config.encode_dim, config.num_classes * config.voting_num),
             neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
             layer.VotingLayer(config.voting_num)
         )
 
-        self.blocks = nn.ModuleList()
-        for _ in range(config.num_blocks):
-            self.blocks.append(MixerBlock(config))
-
     def forward(self, x):
-        # (N, 3, H, W)
-        x = self.encoder(x)
-        # (N, E, H, W)
-        x = self.patcher(x)
-        # (N, E, Ph, Pw)
-        x = x.flatten(-2)
-        # (N, E, Ph × Pw)
-        x = x.transpose(-1, -2)
-        # (N, P, E)
-
-        for block in self.blocks:
-            x = block(x)
-
-        x = self.classifier_norm(x)
-        x = torch.mean(x, dim=-2)
-        out_fr = self.classifier(x)
-
-        return out_fr
+        return self.model(x)
 
 
 if __name__ == '__main__':
