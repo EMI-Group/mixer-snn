@@ -21,7 +21,8 @@ import models.model_mixer_out_fr
 import models.model_mixer_out_v
 import models.model_mixer_var_dim
 import models.model_mixer_modify_res_v1
-import models.model_mixer_modify_res_v2
+import models.mixer_conv_encode
+import models.mixer_mlp_encode
 import models.configs
 import utils
 
@@ -59,6 +60,10 @@ class Trainer(object):
             'model_mixer_modify_res_v2': {
                 'model': models.model_mixer_modify_res_v2.MixerNet,
                 'config': models.configs.get_model_mixer_modify_res_v2_imagenet_config()
+            },
+            'model_mixer_modify_res_v3': {
+                'model': models.model_mixer_modify_res_v3.MixerNet,
+                'config': models.configs.get_model_mixer_modify_res_v3_config()
             }
         }
 
@@ -99,10 +104,7 @@ class Trainer(object):
         model.to(device)
         print(model)
 
-        if args.sync_bn:
-            model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-
-        criterion = nn.MSELoss()
+        criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
 
         optimizer = self.set_optimizer(args, model.parameters())
 
@@ -226,7 +228,8 @@ class Trainer(object):
         header = f'Epoch: [{epoch}]'
         for i, (img, target) in enumerate(metric_logger.log_every(data_loader, -1, header)):
             start_time = time.time()
-            img, target = img.to(device), F.one_hot(target, num_classes=args.num_classes).float().to(device)
+            # img, target = img.to(device), F.one_hot(target, num_classes=args.num_classes).float().to(device)
+            img, target = img.to(device), target.to(device)
             with torch.cuda.amp.autocast(enabled=scaler is not None):
                 img = self.preprocess_train_sample(args, img)
                 output = self.process_model_output(args, model(img))
@@ -253,7 +256,6 @@ class Trainer(object):
             metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
             metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
             metric_logger.meters['img/s'].update(batch_size / (time.time() - start_time))
-
 
         metric_logger.synchronize_between_processes()
         train_loss, train_acc1, train_acc5 = metric_logger.loss.global_avg, metric_logger.acc1.global_avg, metric_logger.acc5.global_avg
@@ -493,7 +495,7 @@ class Trainer(object):
 
         parser.add_argument('--data', default='cifar10', type=str)
         parser.add_argument('--data-path', default='./data', type=str)
-        parser.add_argument('--model', default='model_mixer_modify_res_v2', type=str)
+        parser.add_argument('--model', default='model_mixer_modify_res_v3', type=str)
         parser.add_argument('--T', default=4, type=int)
         parser.add_argument('--cupy', action='store_true')
         parser.add_argument('--device', default='cuda', type=str)
@@ -519,10 +521,10 @@ class Trainer(object):
         parser.add_argument('--amp', action='store_true')
         parser.add_argument('--clip-grad-norm', default=None, type=float)
         parser.add_argument("--local_rank", type=int)
-        parser.add_argument('--sync-bn', action='store_true')
         parser.add_argument('--clean', action='store_true')
         parser.add_argument('--record-fire-rate', action='store_true')
         parser.add_argument('--test-only', action='store_true')
+        parser.add_argument('--label-smoothing', type=float, default=0.0)
 
         return parser
 
@@ -531,4 +533,4 @@ if __name__ == '__main__':
     trainer = Trainer()
     args = trainer.get_args_parser().parse_args()
     # trainer.main(args)
-    trainer.load_model(args, 10)
+    trainer.load_model(args, 1000)

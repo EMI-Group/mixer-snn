@@ -1,20 +1,8 @@
-import torch
 import torch.nn as nn
 
-from spikingjelly.activation_based import neuron, layer, surrogate, functional
+from spikingjelly.activation_based import neuron, layer, surrogate
 from einops.layers.torch import Rearrange, Reduce
-
-
-class BatchNorm1d(nn.BatchNorm1d, layer.base.StepModule):
-    def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True, track_running_stats=True, step_mode='s'):
-        super().__init__(num_features, eps, momentum, affine, track_running_stats)
-        self.step_mode = step_mode
-
-    def forward(self, x):
-        if self.step_mode == 's':
-            return super().forward(x)
-        elif self.step_mode == 'm':
-            return functional.seq_to_ann_forward(x, super().forward)
+from layers import BatchNorm1d
 
 
 class MlpBlock(nn.Module):
@@ -23,10 +11,10 @@ class MlpBlock(nn.Module):
         self.skip_bn = BatchNorm1d(bn_dim)
 
         self.mlp = nn.Sequential(
-            layer.Linear(dim, hidden_dim),
+            layer.Linear(dim, hidden_dim, bias=False),
             BatchNorm1d(bn_dim),
             neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
-            layer.Linear(hidden_dim, dim),
+            layer.Linear(hidden_dim, dim, bias=False),
             BatchNorm1d(bn_dim)
         )
 
@@ -57,32 +45,15 @@ class MixerNet(nn.Module):
 
         self.model = nn.Sequential(
             Rearrange('t b c (h p1) (w p2) -> t b (h w) (p1 p2 c)', p1=config.patch_size, p2=config.patch_size),
-            layer.Linear((config.patch_size ** 2) * 3, config.encode_dim),
+            layer.Linear((config.patch_size ** 2) * 3, config.encode_dim, bias=False),
             BatchNorm1d(config.n_patches),
             neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
             *[MixerBlock(config) for _ in range(config.num_blocks)],
             BatchNorm1d(config.n_patches),
-            Reduce('t b n c ->t b c', 'mean'),
-            layer.Linear(config.encode_dim, config.num_classes * config.voting_num),
+            Reduce('t b n c -> t b c', 'mean'),
             neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
-            layer.VotingLayer(config.voting_num)
+            layer.Linear(config.encode_dim, config.num_classes)
         )
 
     def forward(self, x):
         return self.model(x)
-
-
-if __name__ == '__main__':
-    from configs import get_model_mixer_modify_res_v1_config
-    config = get_model_mixer_modify_res_v1_config()
-    config.num_classes = 10
-    config.img_size = 32
-    model = MixerNet(config)
-    functional.set_step_mode(model, 'm')
-    print(model)
-
-    img = torch.rand([4, 1, 3, 32, 32])
-    print(img)
-
-    out = model(img).mean(0)
-    print(out)
