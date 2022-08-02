@@ -533,6 +533,7 @@ class Trainer(object):
         parser.add_argument('--momentum', default=0.9, type=float)
         parser.add_argument('--weight-decay', default=0., type=float)
         parser.add_argument('--betas', default=[0.9, 0.999], type=float, nargs=2)
+        parser.add_argument('--criterion', default='ce', type=str)
         parser.add_argument('--lr-scheduler', default='cosa', type=str)
         parser.add_argument('--lr-warmup-epochs', default=10, type=int)
         parser.add_argument('--lr-warmup-method', default='linear', type=str)
@@ -559,4 +560,4 @@ class Trainer(object):
 if __name__ == '__main__':
     trainer = Trainer()
     args = trainer.get_args_parser().parse_args()
-    trainer.load_model(args, 1000)
+    trainer.main(args)

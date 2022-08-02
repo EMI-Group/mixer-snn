@@ -2,7 +2,7 @@ import torch.nn as nn
 
 from spikingjelly.activation_based import neuron, layer, surrogate
 from einops.layers.torch import Rearrange, Reduce
-from layers import BatchNorm1d
+from .layers import BatchNorm1d
 
 
 class MlpBlock(nn.Module):
@@ -53,8 +53,8 @@ class MixerNet(nn.Module):
             *[MixerBlock(config) for _ in range(config.num_blocks)],
             BatchNorm1d(config.n_patches),
             Reduce('t b n c -> t b c', 'mean'),
-            layer.Linear(config.hidden_dim, config.num_classes * config.voting_num),
-            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(spiking=False), detach_reset=True),
+            layer.Linear(config.hidden_dim, config.num_classes * config.voting_num, bias=False),
+            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
             layer.VotingLayer(config.voting_num)
         )
 
