@@ -1,150 +1,27 @@
 import ml_collections
 
 
-def get_mixer_config():
+def get_mixer_conv_encode_config():
     config = ml_collections.ConfigDict()
-    config.name = 'Mixer-B_16'
-    config.patch_size = 32
-    config.hidden_dim = 512
-    config.num_blocks = 8
-    config.tokens_mlp_dim = 256
-    config.channels_mlp_dim = 2048
-    return config
-
-
-def get_mixer_v1_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'mixer_v1'
-    config.patch_size = 4
-    config.hidden_dim = 256
-    config.num_blocks = 4
-    config.img_size = 32
-    return config
-
-
-def get_mixer_v2_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'mixer_v2'
-    config.patch_size = 4
-    config.hidden_dim = 512
-    config.num_blocks = 4
-    config.img_size = 32
-    return config
-
-
-def get_mixer_v3_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'mixer_v3'
-    config.patch_size = 4
-    config.hidden_dim = 512
-    config.num_blocks = 4
-    config.img_size = 32
-    return config
-
-
-def get_mixer_v4_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'mixer_v4'
-    config.patch_size = 4
-    config.hidden_dim = 256
-    config.num_blocks = 4
-    config.img_size = 32
-    return config
-
-
-def get_mixer_v5_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'mixer_v5'
-    config.patch_size = 4
-    config.hidden_dim = 512
-    config.encode_dim = 128
-    config.num_blocks = 4
-    config.img_size = 32
-    return config
-
-
-def get_mixer_cls_v_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'mixer_cls_v'
-    config.patch_size = 4
-    config.hidden_dim = 1024
-    config.num_blocks = 4
-    config.img_size = 32
-    return config
-
-
-def get_mixer_var_dim_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'mixer_var_dim'
-    config.patch_size = 4
-    config.encode_dim = 512
-    config.token_hidden_dim = 256
-    config.channel_hidden_dim = 2048
-    config.num_blocks = 4
-    config.img_size = 32
-    config.voting_num = 10
-    return config
-
-
-def get_multi_stage_model_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'multi_stage_model'
-    config.height = 224
-    config.width = 224
-    config.in_channels = 3
-    config.hidden_dim = 64
-    config.patch_size = 4
-    config.depth = [2, 2, 2]
-    config.num_classes = 10
-    return config
-
-
-def get_model_mixer_modify_res_v1_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'model_mixer_modify_res_v1'
-    config.patch_size = 4
-    config.encode_dim = 512
-    config.token_hidden_dim = 256
-    config.channel_hidden_dim = 2048
-    config.num_blocks = 4
-    config.img_size = 32
-    config.voting_num = 10
-    return config
-
-
-def get_model_mixer_modify_res_v2_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'model_mixer_modify_res_v2'
-    config.patch_size = 4
-    config.encode_dim = 768
-    config.token_hidden_dim = 128
-    config.channel_hidden_dim = 2048
-    config.num_blocks = 2
-    config.img_size = 32
-    config.voting_num = 10
-    return config
-
-
-def get_model_mixer_modify_res_v2_imagenet_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'model_mixer_modify_res_v2_imagenet'
-    config.patch_size = 32
-    config.encode_dim = 768
-    config.token_hidden_dim = 256
-    config.channel_hidden_dim = 2048
-    config.num_blocks = 2
+    config.name = 'mixer_conv_encode'
     config.img_size = 224
+    config.patch_size = 32
+    config.encode_dim = 32
+    config.hidden_dim = 768
+    config.token_hidden_dim = 256
+    config.channel_hidden_dim = 2048
+    config.num_blocks = 2
     config.voting_num = 10
     return config
 
 
-def get_model_mixer_modify_res_v3_config():
+def get_mixer_mlp_encode_config():
     config = ml_collections.ConfigDict()
-    config.name = 'model_mixer_modify_res_v3'
+    config.name = 'mixer_mlp_encode'
+    config.img_size = 224
     config.patch_size = 32
-    config.encode_dim = 768
+    config.hidden_dim = 768
     config.token_hidden_dim = 384
     config.channel_hidden_dim = 3072
     config.num_blocks = 12
-    config.img_size = 224
     return config

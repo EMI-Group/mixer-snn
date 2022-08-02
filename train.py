@@ -3,6 +3,7 @@ import random
 import time
 import warnings
 import datetime
+from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -17,10 +18,6 @@ import shutil
 
 import torchvision.datasets
 
-import models.model_mixer_out_fr
-import models.model_mixer_out_v
-import models.model_mixer_var_dim
-import models.model_mixer_modify_res_v1
 import models.mixer_conv_encode
 import models.mixer_mlp_encode
 import models.configs
@@ -41,29 +38,13 @@ def set_deterministic(_seed_: int = 2022):
 class Trainer(object):
     def __init__(self):
         self.models = {
-            'mixer_out_fr': {
-                'model': models.model_mixer_out_fr.MixerNet,
-                'config': models.configs.get_mixer_v5_config()
+            'mixer_conv_encode': {
+                'model': models.mixer_conv_encode.MixerNet,
+                'config': models.configs.get_mixer_conv_encode_config()
             },
-            'mixer_out_v': {
-                'model': models.model_mixer_out_v.MixerNet,
-                'config': models.configs.get_mixer_cls_v_config()
-            },
-            'mixer_var_dim': {
-                'model': models.model_mixer_var_dim.MixerNet,
-                'config': models.configs.get_mixer_var_dim_config()
-            },
-            'model_mixer_modify_res_v1': {
-                'model': models.model_mixer_modify_res_v1.MixerNet,
-                'config': models.configs.get_model_mixer_modify_res_v1_config()
-            },
-            'model_mixer_modify_res_v2': {
-                'model': models.model_mixer_modify_res_v2.MixerNet,
-                'config': models.configs.get_model_mixer_modify_res_v2_imagenet_config()
-            },
-            'model_mixer_modify_res_v3': {
-                'model': models.model_mixer_modify_res_v3.MixerNet,
-                'config': models.configs.get_model_mixer_modify_res_v3_config()
+            'mixer_mlp_encode': {
+                'model': models.mixer_mlp_encode.MixerNet,
+                'config': models.configs.get_mixer_mlp_encode_config()
             }
         }
 
@@ -104,7 +85,7 @@ class Trainer(object):
         model.to(device)
         print(model)
 
-        criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
+        criterion = self.set_criterion(args)
 
         optimizer = self.set_optimizer(args, model.parameters())
 
@@ -120,12 +101,12 @@ class Trainer(object):
             model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
             model_without_ddp = model.module
 
-        log_dir = self.get_logdir_name(args)
-        pt_dir = os.path.join(args.output_dir, log_dir, 'pt')
-        tb_dir = os.path.join(args.output_dir, log_dir, 'tb')
+        log_dir = os.path.join(args.output_dir, self.get_logdir_name(args))
+        pt_dir = os.path.join(log_dir, 'pt')
+        tb_dir = os.path.join(log_dir, 'tb')
         print(log_dir)
 
-        if args.clean and os.path.exists(log_dir) and utils.is_main_process():
+        if utils.is_main_process() and args.clean and os.path.exists(log_dir):
             shutil.rmtree(log_dir)
 
         if utils.is_main_process():
@@ -153,10 +134,7 @@ class Trainer(object):
 
         if utils.is_main_process():
             tb_writer = SummaryWriter(tb_dir, purge_step=args.start_epoch)
-            with open(os.path.join(args.output_dir, log_dir, 'args.txt'), 'w', encoding='utf-8') as args_txt:
-                args_txt.write(str(args))
-                args_txt.write('\n')
-                args_txt.write(' '.join(sys.argv))
+            self.save_args(args, log_dir)
 
         if args.test_only:
             if args.record_fire_rate:
@@ -170,7 +148,7 @@ class Trainer(object):
             }
             if args.record_fire_rate:
                 eval_result['fr_records'] = {layer: fr_monitor[layer] for layer in fr_monitor.monitored_layers}
-            utils.save_on_master(eval_result, os.path.join(args.output_dir, log_dir, 'eval_result.pth'))
+            utils.save_on_master(eval_result, os.path.join(log_dir, 'eval_result.pth'))
 
             if args.record_fire_rate:
                 print(eval_result['fr_records'])
@@ -184,7 +162,8 @@ class Trainer(object):
             if args.distributed:
                 train_sampler.set_epoch(epoch)
 
-            train_loss, train_acc1, train_acc5 = self.train_one_epoch(model, criterion, optimizer, dataloader_train, device, epoch, args, scaler)
+            train_loss, train_acc1, train_acc5 = self.train_one_epoch(model, criterion, optimizer, dataloader_train,
+                                                                      device, epoch, args, scaler)
             if utils.is_main_process():
                 tb_writer.add_scalar('train_loss', train_loss, epoch)
                 tb_writer.add_scalar('train_acc1', train_acc1, epoch)
@@ -216,7 +195,8 @@ class Trainer(object):
                 if save_max_test_acc1:
                     utils.save_on_master(checkpoint, os.path.join(pt_dir, f"checkpoint_max_test_acc1.pth"))
 
-            print(f'escape time={(datetime.datetime.now() + datetime.timedelta(seconds=(time.time() - start_time) * (args.epochs - epoch))).strftime("%Y-%m-%d %H:%M:%S")}\n')
+            print(
+                f'escape time={(datetime.datetime.now() + datetime.timedelta(seconds=(time.time() - start_time) * (args.epochs - epoch))).strftime("%Y-%m-%d %H:%M:%S")}\n')
             print(args)
 
     def train_one_epoch(self, model, criterion, optimizer, data_loader, device, epoch, args, scaler):
@@ -228,12 +208,11 @@ class Trainer(object):
         header = f'Epoch: [{epoch}]'
         for i, (img, target) in enumerate(metric_logger.log_every(data_loader, -1, header)):
             start_time = time.time()
-            # img, target = img.to(device), F.one_hot(target, num_classes=args.num_classes).float().to(device)
             img, target = img.to(device), target.to(device)
             with torch.cuda.amp.autocast(enabled=scaler is not None):
                 img = self.preprocess_train_sample(args, img)
                 output = self.process_model_output(args, model(img))
-                loss = criterion(output, target)
+                loss = self.cal_loss(args, criterion, output, target)
 
             optimizer.zero_grad()
             if scaler is not None:
@@ -259,7 +238,8 @@ class Trainer(object):
 
         metric_logger.synchronize_between_processes()
         train_loss, train_acc1, train_acc5 = metric_logger.loss.global_avg, metric_logger.acc1.global_avg, metric_logger.acc5.global_avg
-        print(f'Train: train_acc1={train_acc1:.3f}, train_acc5={train_acc5:.3f}, train_loss={train_loss:.6f}, samples/s={metric_logger.meters["img/s"]}, lr={metric_logger.lr.value}')
+        print(
+            f'Train: train_acc1={train_acc1:.3f}, train_acc5={train_acc5:.3f}, train_loss={train_loss:.6f}, samples/s={metric_logger.meters["img/s"]}, lr={metric_logger.lr.value}')
         return train_loss, train_acc1, train_acc5
 
     def evaluate(self, args, model, criterion, data_loader, device, log_suffix=""):
@@ -302,7 +282,8 @@ class Trainer(object):
         metric_logger.synchronize_between_processes()
 
         test_loss, test_acc1, test_acc5 = metric_logger.loss.global_avg, metric_logger.acc1.global_avg, metric_logger.acc5.global_avg
-        print(f'Test: test_acc1={test_acc1:.3f}, test_acc5={test_acc5:.3f}, test_loss={test_loss:.6f}, samples/s={num_processed_samples / (time.time() - start_time):.3f}')
+        print(
+            f'Test: test_acc1={test_acc1:.3f}, test_acc5={test_acc5:.3f}, test_loss={test_loss:.6f}, samples/s={num_processed_samples / (time.time() - start_time):.3f}')
 
         return test_loss, test_acc1, test_acc5
 
@@ -350,11 +331,19 @@ class Trainer(object):
                 momentum=args.momentum,
                 weight_decay=args.weight_decay
             )
+        elif opt_name == 'adam':
+            optimizer = torch.optim.Adam(
+                parameters,
+                lr=args.lr,
+                weight_decay=args.weight_decay,
+                betas=args.betas
+            )
         elif opt_name == 'adamw':
             optimizer = torch.optim.AdamW(
                 parameters,
                 lr=args.lr,
-                weight_decay=args.weight_decay
+                weight_decay=args.weight_decay,
+                betas=args.betas
             )
         else:
             raise NotImplementedError(f'Not supported optimizer {args.opt}')
@@ -405,10 +394,42 @@ class Trainer(object):
 
         return lr_scheduler
 
+    def set_criterion(self, args):
+        if args.criterion == 'mse':
+            return nn.MSELoss()
+        elif args.criterion == 'ce':
+            return nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
+        else:
+            raise NotImplementedError()
+
+    def cal_loss(self, args, criterion, outputs, targets):
+        if args.criterion == 'mse':
+            targets = F.one_hot(targets, num_classes=args.num_classes).float()
+            return criterion(outputs, targets)
+        elif args.criterion == 'ce':
+            return criterion(outputs, targets)
+        else:
+            raise NotImplementedError()
+
     def get_logdir_name(self, args):
-        dir_name = f'{args.model}_b{args.batch_size}_e{args.epochs}' \
-                   f'_{args.opt}_lr{args.lr}_wd{args.weight_decay}_seed{args.seed}_T{args.T}_{args.data}'
+        dir_name = f'{args.exp_name}' \
+                   f'{args.data}' \
+                   f'{args.model}' \
+                   f'T{args.T}' \
+                   f'b{args.batch_size}' \
+                   f'e{args.epochs}' \
+                   f'{args.opt}' \
+                   f'lr{args.lr}' \
+                   f'seed{args.seed}'
         return dir_name
+
+    def save_args(self, args, log_dir):
+        with open(os.path.join(log_dir, 'args.txt'), 'w', encoding='utf-8') as args_txt:
+            args_txt.write(str(args))
+            args_txt.write('\n')
+            args_txt.write(' '.join(sys.argv))
+            args_txt.write('\n')
+            args_txt.write(str(self.models[args.model]['config']))
 
     def load_CIFAR10(self, args):
         print('Loading CIFAR10 Data...')
@@ -493,6 +514,7 @@ class Trainer(object):
     def get_args_parser(self):
         parser = argparse.ArgumentParser()
 
+        parser.add_argument('--exp-name', default='mixer-exp', type=str)
         parser.add_argument('--data', default='cifar10', type=str)
         parser.add_argument('--data-path', default='./data', type=str)
         parser.add_argument('--model', default='model_mixer_modify_res_v3', type=str)
@@ -506,6 +528,7 @@ class Trainer(object):
         parser.add_argument('--lr', default=0.1, type=float)
         parser.add_argument('--momentum', default=0.9, type=float)
         parser.add_argument('--weight-decay', default=0., type=float)
+        parser.add_argument('--betas', default=[0.9, 0.999], type=float, nargs=2)
         parser.add_argument('--lr-scheduler', default='cosa', type=str)
         parser.add_argument('--lr-warmup-epochs', default=10, type=int)
         parser.add_argument('--lr-warmup-method', default='linear', type=str)
@@ -532,5 +555,4 @@ class Trainer(object):
 if __name__ == '__main__':
     trainer = Trainer()
     args = trainer.get_args_parser().parse_args()
-    # trainer.main(args)
     trainer.load_model(args, 1000)
