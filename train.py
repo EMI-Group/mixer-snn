@@ -3,7 +3,6 @@ import random
 import time
 import warnings
 import datetime
-from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -20,6 +19,7 @@ import torchvision.datasets
 
 import models.mixer_conv_encode
 import models.mixer_mlp_encode
+import models.mixer_relu_ann
 import models.configs
 import utils
 
@@ -45,6 +45,10 @@ class Trainer(object):
             'mixer_mlp_encode': {
                 'model': models.mixer_mlp_encode.MixerNet,
                 'config': models.configs.get_mixer_mlp_encode_config()
+            },
+            'mixer_relu_ann': {
+                'model': models.mixer_relu_ann.MixerNet,
+                'config': models.configs.get_mixer_relu_ann_config()
             }
         }
 
