@@ -13,12 +13,12 @@ class MlpBlock(nn.Module):
         self.mlp = nn.Sequential(
             layer.Linear(dim, hidden_dim, bias=False),
             BatchNorm1d(bn_dim),
-            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
+            nn.ReLU(),
             layer.Linear(hidden_dim, dim, bias=False),
             BatchNorm1d(bn_dim)
         )
 
-        self.lif = neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True)
+        self.lif = nn.ReLU()
 
     def forward(self, x):
         return self.lif(self.skip_bn(x) + self.mlp(x))
@@ -47,11 +47,11 @@ class MixerNet(nn.Module):
             Rearrange('t b c (h p1) (w p2) -> t b (h w) (p1 p2 c)', p1=config.patch_size, p2=config.patch_size),
             layer.Linear((config.patch_size ** 2) * 3, config.encode_dim, bias=False),
             BatchNorm1d(config.n_patches),
-            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
+            nn.ReLU(),
             *[MixerBlock(config) for _ in range(config.num_blocks)],
             BatchNorm1d(config.n_patches),
             Reduce('t b n c -> t b c', 'mean'),
-            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
+            nn.ReLU(),
             layer.Linear(config.encode_dim, config.num_classes)
         )
 
