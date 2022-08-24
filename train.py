@@ -19,7 +19,6 @@ import torchvision.datasets
 
 import models.mixer_conv_encode
 import models.mixer_mlp_encode
-import models.mixer_relu_ann
 import models.configs
 import utils
 
@@ -45,10 +44,6 @@ class Trainer(object):
             'mixer_mlp_encode': {
                 'model': models.mixer_mlp_encode.MixerNet,
                 'config': models.configs.get_mixer_mlp_encode_config()
-            },
-            'mixer_relu_ann': {
-                'model': models.mixer_relu_ann.MixerNet,
-                'config': models.configs.get_mixer_relu_ann_config()
             }
         }
 
@@ -86,6 +81,7 @@ class Trainer(object):
 
         print('Creating model...')
         model = self.load_model(args, num_classes)
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model.to(device)
         print(model)
 
@@ -136,13 +132,21 @@ class Trainer(object):
             print('Resume...')
             print(f'max_test_acc1: {max_test_acc1}')
 
+        if args.fine_tune is not None:
+            checkpoint = torch.load(args.fine_tune, map_location='cpu')
+            model_state_dict = utils.fine_tune_state_dict(checkpoint['model'], model_without_ddp.model[-1])
+            model_without_ddp.load_state_dict(model_state_dict)
+
+            print('Fine tune...')
+            print(f'Pre-train model: {args.fine_tune}')
+
         if utils.is_main_process():
             tb_writer = SummaryWriter(tb_dir, purge_step=args.start_epoch)
             self.save_args(args, log_dir)
 
         if args.test_only:
             if args.record_fire_rate:
-                fr_monitor = monitor.OutputMonitor(model, neuron.BaseNode, utils.cal_fire_rate)
+                fr_monitor = monitor.OutputMonitor(model, neuron.LIFNode, utils.cal_fire_rate)
 
             test_loss, test_acc1, test_acc5 = self.evaluate(args, model, criterion, dataloader_test, device)
             eval_result = {
@@ -151,11 +155,10 @@ class Trainer(object):
                 'test_acc5': test_acc5,
             }
             if args.record_fire_rate:
-                eval_result['fr_records'] = {layer: fr_monitor[layer] for layer in fr_monitor.monitored_layers}
+                eval_result['fr_records'] = {layer: torch.mean(torch.cat([r.unsqueeze(0) for r in fr_monitor[layer]], dim=0), dim=0) for layer in fr_monitor.monitored_layers}
             utils.save_on_master(eval_result, os.path.join(log_dir, 'eval_result.pth'))
 
             if args.record_fire_rate:
-                print(eval_result['fr_records'])
                 fr_monitor.remove_hooks()
                 del fr_monitor
 
@@ -215,7 +218,7 @@ class Trainer(object):
             img, target = img.to(device), target.to(device)
             with torch.cuda.amp.autocast(enabled=scaler is not None):
                 img = self.preprocess_train_sample(args, img)
-                output = self.process_model_output(args, model(img))
+                output = self.process_model_output(args, functional.multi_step_forward(img, model))
                 loss = self.cal_loss(args, criterion, output, target)
 
             optimizer.zero_grad()
@@ -239,7 +242,8 @@ class Trainer(object):
             metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
             metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
             metric_logger.meters['img/s'].update(batch_size / (time.time() - start_time))
-
+            print(
+                f'Train[{i}/{len(data_loader)}]: train_acc1={acc1:.3f}, train_acc5={acc5:.3f}, train_loss={loss:.6f}, lr={optimizer.param_groups[0]["lr"]}')
         metric_logger.synchronize_between_processes()
         train_loss, train_acc1, train_acc5 = metric_logger.loss.global_avg, metric_logger.acc1.global_avg, metric_logger.acc5.global_avg
         print(
@@ -258,8 +262,8 @@ class Trainer(object):
                 img = img.to(device, non_blocking=True)
                 target = F.one_hot(target, num_classes=args.num_classes).float().to(device, non_blocking=True)
                 img = self.preprocess_test_sample(args, img)
-                output = self.process_model_output(args, model(img))
-                loss = criterion(output, target)
+                output = self.process_model_output(args, functional.multi_step_forward(img, model))
+                loss = self.cal_loss(args, criterion, output, target)
 
                 acc1, acc5 = self.cal_acc1_acc5(output, target)
 
@@ -300,9 +304,11 @@ class Trainer(object):
         return x
 
     def process_model_output(self, args, y):
-        return y.mean(0)
+        return y.mean(0) if args.criterion != 'tet' else y
 
     def cal_acc1_acc5(self, output, target):
+        if args.criterion == 'tet':
+            output = output.mean(0)
         acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
         return acc1, acc5
 
@@ -319,7 +325,7 @@ class Trainer(object):
         config = model_dict['config']
         config.num_classes = num_classes
         model = model_dict['model'](config)
-        functional.set_step_mode(model, 'm')
+        functional.set_step_mode(model, 's')
         if args.cupy:
             functional.set_backend(model, 'cupy')
         num_params = utils.count_parameters(model)
@@ -403,27 +409,38 @@ class Trainer(object):
             return nn.MSELoss()
         elif args.criterion == 'ce':
             return nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
+        elif args.criterion == 'tet':
+            return nn.MSELoss(), nn.CrossEntropyLoss()
         else:
             raise NotImplementedError()
 
     def cal_loss(self, args, criterion, outputs, targets):
         if args.criterion == 'mse':
-            targets = F.one_hot(targets, num_classes=args.num_classes).float()
+            targets = F.one_hot(targets, num_classes=args.num_classes).float().cuda()
             return criterion(outputs, targets)
         elif args.criterion == 'ce':
             return criterion(outputs, targets)
+        elif args.criterion == 'tet':
+            mse_loss, ce_loss = criterion
+            loss = 0
+            MSE_PHI = torch.ones(args.num_classes).cuda() * 1.0
+            TET_lambda = 5e-2
+            for o in outputs:
+                mse = MSE_PHI.expand((len(o), args.num_classes))
+                loss += (1 - TET_lambda) * ce_loss(o, targets) + TET_lambda * mse_loss(o, mse)
+            return loss
         else:
             raise NotImplementedError()
 
     def get_logdir_name(self, args):
-        dir_name = f'{args.exp_name}' \
-                   f'{args.data}' \
-                   f'{args.model}' \
-                   f'T{args.T}' \
-                   f'b{args.batch_size}' \
-                   f'e{args.epochs}' \
-                   f'{args.opt}' \
-                   f'lr{args.lr}' \
+        dir_name = f'{args.exp_name}_' \
+                   f'{args.data}_' \
+                   f'{args.model}_' \
+                   f'T{args.T}_' \
+                   f'b{args.batch_size}_' \
+                   f'e{args.epochs}_' \
+                   f'{args.opt}_' \
+                   f'lr{args.lr}_' \
                    f'seed{args.seed}'
         return dir_name
 
@@ -442,9 +459,9 @@ class Trainer(object):
             download=True,
             train=True,
             transform=torchvision.transforms.Compose([
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.RandomCrop(32, padding=4),
+                torchvision.transforms.RandomResizedCrop(224),
                 torchvision.transforms.RandomHorizontalFlip(),
+                torchvision.transforms.ToTensor(),
                 torchvision.transforms.Normalize(
                     mean=(0.4914, 0.4822, 0.4465),
                     std=(0.2023, 0.1994, 0.2010),
@@ -456,6 +473,7 @@ class Trainer(object):
             download=True,
             train=False,
             transform=torchvision.transforms.Compose([
+                torchvision.transforms.Resize(size=(224, 224)),
                 torchvision.transforms.ToTensor(),
                 torchvision.transforms.Normalize(
                     mean=(0.4914, 0.4822, 0.4465),
@@ -553,6 +571,7 @@ class Trainer(object):
         parser.add_argument('--record-fire-rate', action='store_true')
         parser.add_argument('--test-only', action='store_true')
         parser.add_argument('--label-smoothing', type=float, default=0.0)
+        parser.add_argument('--fine-tune', default=None, type=str)
 
         return parser
 

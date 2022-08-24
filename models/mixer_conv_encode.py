@@ -1,8 +1,8 @@
 import torch.nn as nn
-
 from spikingjelly.activation_based import neuron, layer, surrogate
 from einops.layers.torch import Rearrange, Reduce
-from .layers import BatchNorm1d
+from models.layers import BatchNorm1d
+from DSpikeSG import DSpike
 
 
 class MlpBlock(nn.Module):
@@ -11,9 +11,17 @@ class MlpBlock(nn.Module):
         self.skip_bn = BatchNorm1d(bn_dim)
 
         self.mlp = nn.Sequential(
+            # [C, S]
             layer.Linear(dim, hidden_dim),
+            # [C, hidden_dim]
             BatchNorm1d(bn_dim),
-            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
+            # [C, hidden_dim]
+            # tau 0.2 + v_th 0.5 + DSpike(b=3)
+            # [b, C * hidden_dim]
+            neuron.LIFNode(surrogate_function=DSpike(), detach_reset=True, v_threshold=0.5, tau=5.),
+            # [B, sparse_dim]
+            # cupy torch
+            # 确认linear
             layer.Linear(hidden_dim, dim),
             BatchNorm1d(bn_dim)
         )
@@ -46,16 +54,19 @@ class MixerNet(nn.Module):
         self.model = nn.Sequential(
             layer.Conv2d(3, config.encode_dim, kernel_size=3, stride=1, padding=1),
             layer.BatchNorm2d(config.encode_dim),
-            neuron.IFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
-            layer.Conv2d(config.encode_dim, config.hidden_dim, kernel_size=config.patch_size, stride=config.patch_size),
-            layer.BatchNorm2d(config.hidden_dim),
-            Rearrange('t b c h w -> t b (h w) c'),
+            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
+
+            Rearrange('t b c (h p1) (w p2) -> t b (h w) (p1 p2 c)', p1=config.patch_size, p2=config.patch_size),
+            layer.Linear((config.patch_size ** 2) * config.encode_dim, config.hidden_dim),
+            BatchNorm1d(config.n_patches),
+            neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
+
             *[MixerBlock(config) for _ in range(config.num_blocks)],
+
             BatchNorm1d(config.n_patches),
             Reduce('t b n c -> t b c', 'mean'),
-            layer.Linear(config.hidden_dim, config.num_classes * config.voting_num, bias=False),
             neuron.LIFNode(surrogate_function=surrogate.Sigmoid(), detach_reset=True),
-            layer.VotingLayer(config.voting_num)
+            layer.Linear(config.hidden_dim, config.num_classes)
         )
 
     def forward(self, x):

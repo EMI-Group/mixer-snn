@@ -8,6 +8,9 @@ class BatchNorm1d(nn.BatchNorm1d, layer.base.StepModule):
         super().__init__(num_features, eps, momentum, affine, track_running_stats)
         self.step_mode = step_mode
 
+    def extra_repr(self):
+        return super().extra_repr() + f', step_mode={self.step_mode}'
+
     def forward(self, x):
         if self.step_mode == 's':
             return super().forward(x)

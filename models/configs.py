@@ -5,13 +5,12 @@ def get_mixer_conv_encode_config():
     config = ml_collections.ConfigDict()
     config.name = 'mixer_conv_encode'
     config.img_size = 224
-    config.patch_size = 32
+    config.patch_size = 16
     config.encode_dim = 32
     config.hidden_dim = 768
     config.token_hidden_dim = 256
     config.channel_hidden_dim = 2048
-    config.num_blocks = 2
-    config.voting_num = 10
+    config.num_blocks = 4
     return config
 
 
@@ -21,9 +20,10 @@ def get_mixer_mlp_encode_config():
     config.img_size = 224
     config.patch_size = 32
     config.hidden_dim = 768
-    config.token_hidden_dim = 384
-    config.channel_hidden_dim = 3072
-    config.num_blocks = 12
+    config.token_hidden_dim = 256
+    config.channel_hidden_dim = 2048
+    config.voting_size = 5
+    config.num_blocks = 4
     return config
 
 

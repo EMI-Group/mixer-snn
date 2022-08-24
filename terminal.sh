@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch --nproc_per_node=8 train_snn_mixer.py  --cupy --T 4 --batch-size 64 --model mixer_out_fr --epochs 100 --data cifar10 --clean
+CUDA_VISIBLE_DEVICES=0 python -m torch.distributed.launch --nproc_per_node=1 train.py --T 4 --batch-size 64 --model mixer_conv_encode --epochs 300 --output-dir ./logs --lr 0.1 --lr-scheduler step --lr-step-size 50 --lr-gamma 0.5 --data cifar10 --opt sgd --lr-warmup-epochs 0 --exp-name test --test-only --record_fire_rate --resume ./checkpoint_max_test_acc1.pth

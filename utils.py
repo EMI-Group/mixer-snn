@@ -6,6 +6,7 @@ import time
 import datetime
 import spikingjelly.visualizing
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 def init_distributed_mode(args):
@@ -100,43 +101,67 @@ def accuracy(output, target, topk=(1,)):
 
 
 def cal_fire_rate(s_seq):
-    return torch.mean(s_seq, dim=(0, 1))
+    return torch.mean(s_seq, dim=0)
 
 
-def plot_eval_fire_rate(eval_result_path, max_neuron_num=20, max_layers_num=10):
+def plot_eval_fire_rate(eval_result_path):
     eval_result = torch.load(eval_result_path)
-    layers_fr = {}
-    for layer, records in eval_result['fr_records'].items():
-        avg_fr = torch.mean(torch.cat([r.cpu().unsqueeze(0) for r in records], dim=0), dim=0)
-        layers_fr[layer] = avg_fr.flatten()
-    fr_array = torch.cat([fr.unsqueeze(0) for fr in layers_fr.values()], dim=0)
+    layers_fr = eval_result['fr_records']
+    each_layer_avg_fr = []
     for layer in layers_fr:
-        print(f'{layer} avg fr: ', "%.2f" % torch.mean(layers_fr[layer]))
-    print(f'Global avg fr: ', "%.2f" % torch.mean(fr_array, dim=(0, 1)))
-    fig = spikingjelly.visualizing.plot_2d_bar_in_3d(
-        array=fr_array.numpy()[:max_layers_num, :max_neuron_num].T,
-        title='fire rate of different layers',
-        xlabel='layers',
-        ylabel='neuron index',
-        zlabel='fire rate',
-        int_x_ticks=True,
-        int_y_ticks=True,
-        int_z_ticks=False,
-        dpi=200
-    )
-    fig.show()
+        each_layer_avg_fr.append(torch.mean(layers_fr[layer]).cpu().item())
+        print(f'{layer} avg fr: ', "%.2f" % torch.mean(layers_fr[layer]).cpu().item())
+    print(f'Global avg fr: ', "%.2f" % np.mean(each_layer_avg_fr))
 
-    plt.bar(range(len(layers_fr.keys())), [torch.mean(fr) for fr in layers_fr.values()])
-    plt.xlabel('layer index')
-    plt.ylabel('fire rate avg')
-    plt.title('average fire rate of different layers')
-    plt.show()
+    # x = range(len(layers_fr.keys()))
+    # plt.bar(x, each_layer_avg_fr)
+    # plt.xlabel('layer index')
+    # plt.ylabel('fire rate avg')
+    # plt.title('average fire rate of different layers')
+    # plt.show()
+    #
+    # feature_map = layers_fr['module.model.7.model.1.mlp.2'].cpu().numpy()
+    # print(feature_map)
+    # s, c = feature_map.shape
+    # print(s, c)
+    # plt.imshow(feature_map, cmap='coolwarm', origin='upper', aspect="auto")
+    # plt.colorbar()
+    # plt.show()
+
+    def plot_histogram_one_block(block_name_prefix):
+        token_mixing_block_lif_fm_1 = layers_fr[f'{block_name_prefix}.model.1.mlp.2'].cpu().numpy()
+        token_mixing_block_lif_fm_2 = layers_fr[f'{block_name_prefix}.model.1.lif'].cpu().numpy()
+        channel_mixing_block_lif_fm_1 = layers_fr[f'{block_name_prefix}.model.3.mlp.2'].cpu().numpy()
+        channel_mixing_block_lif_fm_2 = layers_fr[f'{block_name_prefix}.model.3.lif'].cpu().numpy()
+
+        def plot_one_ax(fm, mean_axis, x_dim, ax, title_prefix):
+            fm = np.mean(fm, axis=mean_axis)
+            x = range(x_dim)
+            zero_fr_num = np.sum(fm <= 0.02)
+            print(np.min(fm))
+            ax.set_title(f'{title_prefix}_inactive_neuron={zero_fr_num}')
+            ax.bar(x, fm)
+
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(nrows=2, ncols=2, constrained_layout=True, dpi=1200)
+        plot_one_ax(token_mixing_block_lif_fm_1, 0, token_mixing_block_lif_fm_1.shape[1], ax1, 'token_1')
+        plot_one_ax(token_mixing_block_lif_fm_2, 1, token_mixing_block_lif_fm_2.shape[0], ax2, 'token_2')
+        plot_one_ax(channel_mixing_block_lif_fm_1, 0, channel_mixing_block_lif_fm_1.shape[1], ax3, 'channel_1')
+        plot_one_ax(channel_mixing_block_lif_fm_2, 1, channel_mixing_block_lif_fm_2.shape[0], ax4, 'channel_2')
+        fig.show()
+
+    plot_histogram_one_block('module.model.7')
+
 
 
 def count_parameters(model):
-    print([p.shape for p in model.parameters() if p.requires_grad])
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return params/1000000
+
+
+def fine_tune_state_dict(model_state_dict, fine_tune_layer):
+    model_state_dict['model.14.weight'] = fine_tune_layer.weight
+    model_state_dict['model.14.bias'] = fine_tune_layer.bias
+    return model_state_dict
 
 
 class SmoothedValue:
