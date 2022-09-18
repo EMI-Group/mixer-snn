@@ -1,18 +1,33 @@
+import torch
 import torch.nn as nn
 
-from spikingjelly.activation_based import layer, functional
+from spikingjelly.activation_based import layer
 
 
-class BatchNorm1d(nn.BatchNorm1d, layer.base.StepModule):
-    def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True, track_running_stats=True, step_mode='s'):
-        super().__init__(num_features, eps, momentum, affine, track_running_stats)
-        self.step_mode = step_mode
-
-    def extra_repr(self):
-        return super().extra_repr() + f', step_mode={self.step_mode}'
-
-    def forward(self, x):
-        if self.step_mode == 's':
-            return super().forward(x)
-        elif self.step_mode == 'm':
-            return functional.seq_to_ann_forward(x, super().forward)
+def convert_bn_to_sync_bn(module, process_group=None):
+    module_output = module
+    if isinstance(module, nn.modules.batchnorm._BatchNorm):
+        module_output = nn.SyncBatchNorm(
+            module.num_features,
+            module.eps,
+            module.momentum,
+            module.affine,
+            module.track_running_stats,
+            process_group,
+        )
+        if module.affine:
+            with torch.no_grad():
+                module_output.weight = module.weight
+                module_output.bias = module.bias
+        module_output.running_mean = module.running_mean
+        module_output.running_var = module.running_var
+        module_output.num_batches_tracked = module.num_batches_tracked
+        if hasattr(module, "qconfig"):
+            module_output.qconfig = module.qconfig
+        module_output = layer.SeqToANNContainer(module_output)
+    for name, child in module.named_children():
+        module_output.add_module(
+            name, convert_bn_to_sync_bn(child, process_group)
+        )
+    del module
+    return module_output

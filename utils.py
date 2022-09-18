@@ -4,7 +4,6 @@ import torch.distributed as dist
 from collections import defaultdict, deque
 import time
 import datetime
-import spikingjelly.visualizing
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -307,7 +306,3 @@ class MetricLogger:
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
         print(f"{header} Total time: {total_time_str}")
-
-
-if __name__ == '__main__':
-    plot_eval_fire_rate("./eval_result.pth")

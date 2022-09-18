@@ -17,12 +17,19 @@ import shutil
 
 import torchvision.datasets
 
-import models.mixer_conv_encode
-import models.mixer_mlp_encode
+import models.mixer_sparse
 import models.configs
 import utils
+import models.layers
 
 from spikingjelly.activation_based import functional, monitor, neuron
+
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+from timm.data import create_transform
+from timm.data import Mixup
+from timm.loss import SoftTargetCrossEntropy
+
+from samplers import RASampler
 
 
 def set_deterministic(_seed_: int = 2022):
@@ -37,13 +44,9 @@ def set_deterministic(_seed_: int = 2022):
 class Trainer(object):
     def __init__(self):
         self.models = {
-            'mixer_conv_encode': {
-                'model': models.mixer_conv_encode.MixerNet,
-                'config': models.configs.get_mixer_conv_encode_config()
-            },
-            'mixer_mlp_encode': {
-                'model': models.mixer_mlp_encode.MixerNet,
-                'config': models.configs.get_mixer_mlp_encode_config()
+            'mixer_sparse': {
+                'model': models.mixer_sparse.sMLPNet,
+                'config': None
             }
         }
 
@@ -69,6 +72,7 @@ class Trainer(object):
             sampler=train_sampler,
             num_workers=args.workers,
             pin_memory=True,
+            drop_last=True
         )
 
         dataloader_test = torch.utils.data.DataLoader(
@@ -77,11 +81,20 @@ class Trainer(object):
             sampler=test_sampler,
             num_workers=args.workers,
             pin_memory=True,
+            drop_last=False
         )
+
+        mixup_fn = None
+        mixup_active = args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None
+        if mixup_active:
+            mixup_fn = Mixup(
+                mixup_alpha=args.mixup, cutmix_alpha=args.cutmix, cutmix_minmax=args.cutmix_minmax,
+                prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, mode=args.mixup_mode,
+                label_smoothing=args.smoothing, num_classes=args.num_classes)
 
         print('Creating model...')
         model = self.load_model(args, num_classes)
-        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        model = models.layers.convert_bn_to_sync_bn(model)
         model.to(device)
         print(model)
 
@@ -170,7 +183,7 @@ class Trainer(object):
                 train_sampler.set_epoch(epoch)
 
             train_loss, train_acc1, train_acc5 = self.train_one_epoch(model, criterion, optimizer, dataloader_train,
-                                                                      device, epoch, args, scaler)
+                                                                      device, epoch, args, scaler, mixup_fn)
             if utils.is_main_process():
                 tb_writer.add_scalar('train_loss', train_loss, epoch)
                 tb_writer.add_scalar('train_acc1', train_acc1, epoch)
@@ -206,7 +219,7 @@ class Trainer(object):
                 f'escape time={(datetime.datetime.now() + datetime.timedelta(seconds=(time.time() - start_time) * (args.epochs - epoch))).strftime("%Y-%m-%d %H:%M:%S")}\n')
             print(args)
 
-    def train_one_epoch(self, model, criterion, optimizer, data_loader, device, epoch, args, scaler):
+    def train_one_epoch(self, model, criterion, optimizer, data_loader, device, epoch, args, scaler, mixup_fn):
         model.train()
         metric_logger = utils.MetricLogger(delimiter=' ')
         metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value}'))
@@ -215,10 +228,12 @@ class Trainer(object):
         header = f'Epoch: [{epoch}]'
         for i, (img, target) in enumerate(metric_logger.log_every(data_loader, -1, header)):
             start_time = time.time()
-            img, target = img.to(device), target.to(device)
+            img = img.to(device, non_blocking=True)
+            target = target.to(device, non_blocking=True)
+            img, target = mixup_fn(img, target)
             with torch.cuda.amp.autocast(enabled=scaler is not None):
                 img = self.preprocess_train_sample(args, img)
-                output = self.process_model_output(args, functional.multi_step_forward(img, model))
+                output = self.process_model_output(args, model(img))
                 loss = self.cal_loss(args, criterion, output, target)
 
             optimizer.zero_grad()
@@ -260,9 +275,9 @@ class Trainer(object):
         with torch.inference_mode():
             for img, target in metric_logger.log_every(data_loader, -1, header):
                 img = img.to(device, non_blocking=True)
-                target = F.one_hot(target, num_classes=args.num_classes).float().to(device, non_blocking=True)
+                target = target.to(device, non_blocking=True)
                 img = self.preprocess_test_sample(args, img)
-                output = self.process_model_output(args, functional.multi_step_forward(img, model))
+                output = self.process_model_output(args, model(img))
                 loss = self.cal_loss(args, criterion, output, target)
 
                 acc1, acc5 = self.cal_acc1_acc5(output, target)
@@ -324,8 +339,8 @@ class Trainer(object):
         model_dict = self.models[args.model]
         config = model_dict['config']
         config.num_classes = num_classes
-        model = model_dict['model'](config)
-        functional.set_step_mode(model, 's')
+        model = model_dict['model'](**dict(config))
+        functional.set_step_mode(model, 'm')
         if args.cupy:
             functional.set_backend(model, 'cupy')
         num_params = utils.count_parameters(model)
@@ -408,7 +423,7 @@ class Trainer(object):
         if args.criterion == 'mse':
             return nn.MSELoss()
         elif args.criterion == 'ce':
-            return nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
+            return SoftTargetCrossEntropy()
         elif args.criterion == 'tet':
             return nn.MSELoss(), nn.CrossEntropyLoss()
         else:
@@ -495,43 +510,98 @@ class Trainer(object):
         return dataset_train, dataset_test, train_sampler, test_sampler
 
     def load_ImageNet(self, args):
+        def build_transform(is_train, args):
+            resize_im = args.input_size > 32
+            if is_train:
+                transform = create_transform(
+                    input_size=args.input_size,
+                    is_training=True,
+                    color_jitter=args.color_jitter,
+                    auto_augment=args.aa,
+                    interpolation=args.train_interpolation,
+                    re_prob=args.reprob,
+                    re_mode=args.remode,
+                    re_count=args.recount,
+                )
+                if not resize_im:
+                    transform.transforms[0] = torchvision.transforms.RandomCrop(
+                        args.input_size, padding=4)
+                return transform
+
+            t = []
+            if resize_im:
+                size = int((256 / 224) * args.input_size)
+                t.append(
+                    torchvision.transforms.Resize(size, interpolation=3),
+                )
+                t.append(torchvision.transforms.CenterCrop(args.input_size))
+
+            t.append(torchvision.transforms.ToTensor())
+            t.append(torchvision.transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD))
+            return torchvision.transforms.Compose(t)
+
         print('Loading ImageNet Data...')
         train_path = os.path.join(args.data_path, 'train')
         val_path = os.path.join(args.data_path, 'val')
 
-        train_transform = torchvision.transforms.Compose([
-            torchvision.transforms.RandomResizedCrop(224),
-            torchvision.transforms.RandomHorizontalFlip(),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225]
-            )
-        ])
-
-        val_transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize((224, 224)),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225]
-            )
-        ])
-
+        train_transform = build_transform(True, args)
+        val_transform = build_transform(False, args)
         dataset_train = torchvision.datasets.ImageFolder(root=train_path, transform=train_transform)
         dataset_val = torchvision.datasets.ImageFolder(root=val_path, transform=val_transform)
 
-        loader_generator = torch.Generator()
-        loader_generator.manual_seed(args.seed)
-
-        if args.distributed:
-            train_sampler = torch.utils.data.DistributedSampler(dataset=dataset_train, seed=args.seed)
-            val_sampler = torch.utils.data.DistributedSampler(dataset=dataset_val, shuffle=False)
+        num_tasks = utils.get_world_size()
+        global_rank = utils.get_rank()
+        if args.repeated_aug:
+            sampler_train = RASampler(
+                dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+            )
         else:
-            train_sampler = torch.utils.data.RandomSampler(data_source=dataset_train, generator=loader_generator)
-            val_sampler = torch.utils.data.SequentialSampler(data_source=dataset_val)
+            sampler_train = torch.utils.data.DistributedSampler(
+                dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+            )
+        if args.dist_eval:
+            if len(dataset_val) % num_tasks != 0:
+                warnings.warn('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
+                            'This will slightly alter validation results as extra duplicate entries are added to achieve '
+                            'equal num of samples per-process.')
+            sampler_val = torch.utils.data.DistributedSampler(
+                dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False)
+        else:
+            sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
-        return dataset_train, dataset_val, train_sampler, val_sampler
+        # train_transform = torchvision.transforms.Compose([
+        #     torchvision.transforms.RandomResizedCrop(224),
+        #     torchvision.transforms.RandomHorizontalFlip(),
+        #     torchvision.transforms.ToTensor(),
+        #     torchvision.transforms.Normalize(
+        #         mean=[0.485, 0.456, 0.406],
+        #         std=[0.229, 0.224, 0.225]
+        #     )
+        # ])
+        #
+        # val_transform = torchvision.transforms.Compose([
+        #     torchvision.transforms.Resize((224, 224)),
+        #     torchvision.transforms.ToTensor(),
+        #     torchvision.transforms.Normalize(
+        #         mean=[0.485, 0.456, 0.406],
+        #         std=[0.229, 0.224, 0.225]
+        #     )
+        # ])
+        #
+        # dataset_train = torchvision.datasets.ImageFolder(root=train_path, transform=train_transform)
+        # dataset_val = torchvision.datasets.ImageFolder(root=val_path, transform=val_transform)
+        #
+        # loader_generator = torch.Generator()
+        # loader_generator.manual_seed(args.seed)
+        #
+        # if args.distributed:
+        #     train_sampler = torch.utils.data.DistributedSampler(dataset=dataset_train, seed=args.seed)
+        #     val_sampler = torch.utils.data.DistributedSampler(dataset=dataset_val, shuffle=False)
+        # else:
+        #     train_sampler = torch.utils.data.RandomSampler(data_source=dataset_train, generator=loader_generator)
+        #     val_sampler = torch.utils.data.SequentialSampler(data_source=dataset_val)
+
+        return dataset_train, dataset_val, sampler_train, sampler_val
 
     def get_args_parser(self):
         parser = argparse.ArgumentParser()
@@ -539,6 +609,7 @@ class Trainer(object):
         parser.add_argument('--exp-name', default='mixer-exp', type=str)
         parser.add_argument('--data', default='cifar10', type=str)
         parser.add_argument('--data-path', default='./data', type=str)
+        parser.add_argument('--input-size', default=224, type=int, help='images input size')
         parser.add_argument('--model', default='model_mixer_modify_res_v3', type=str)
         parser.add_argument('--T', default=4, type=int)
         parser.add_argument('--cupy', action='store_true')
@@ -570,8 +641,47 @@ class Trainer(object):
         parser.add_argument('--clean', action='store_true')
         parser.add_argument('--record-fire-rate', action='store_true')
         parser.add_argument('--test-only', action='store_true')
-        parser.add_argument('--label-smoothing', type=float, default=0.0)
         parser.add_argument('--fine-tune', default=None, type=str)
+
+        # Augmentation parameters
+        parser.add_argument('--color-jitter', type=float, default=0.4, metavar='PCT',
+                            help='Color jitter factor (default: 0.4)')
+        parser.add_argument('--aa', type=str, default='rand-m9-mstd0.5-inc1', metavar='NAME',
+                            help='Use AutoAugment policy. "v0" or "original". " + \
+                                    "(default: rand-m9-mstd0.5-inc1)'),
+        parser.add_argument('--smoothing', type=float, default=0.1, help='Label smoothing (default: 0.1)')
+        parser.add_argument('--train-interpolation', type=str, default='bicubic',
+                            help='Training interpolation (random, bilinear, bicubic default: "bicubic")')
+
+        parser.add_argument('--repeated-aug', action='store_true')
+        parser.add_argument('--no-repeated-aug', action='store_false', dest='repeated_aug')
+        parser.set_defaults(repeated_aug=True)
+
+        # * Random Erase params
+        parser.add_argument('--reprob', type=float, default=0.25, metavar='PCT',
+                            help='Random erase prob (default: 0.25)')
+        parser.add_argument('--remode', type=str, default='pixel',
+                            help='Random erase mode (default: "pixel")')
+        parser.add_argument('--recount', type=int, default=1,
+                            help='Random erase count (default: 1)')
+        parser.add_argument('--resplit', action='store_true', default=False,
+                            help='Do not random erase first (clean) augmentation split')
+
+        # * Mixup params
+        parser.add_argument('--mixup', type=float, default=0.8,
+                            help='mixup alpha, mixup enabled if > 0. (default: 0.8)')
+        parser.add_argument('--cutmix', type=float, default=1.0,
+                            help='cutmix alpha, cutmix enabled if > 0. (default: 1.0)')
+        parser.add_argument('--cutmix-minmax', type=float, nargs='+', default=None,
+                            help='cutmix min/max ratio, overrides alpha and enables cutmix if set (default: None)')
+        parser.add_argument('--mixup-prob', type=float, default=1.0,
+                            help='Probability of performing mixup or cutmix when either/both is enabled')
+        parser.add_argument('--mixup-switch-prob', type=float, default=0.5,
+                            help='Probability of switching to cutmix when both mixup and cutmix enabled')
+        parser.add_argument('--mixup-mode', type=str, default='batch',
+                            help='How to apply mixup/cutmix params. Per "batch", "pair", or "elem"')
+
+        parser.add_argument('--dist-eval', action='store_true', default=False, help='Enabling distributed evaluation')
 
         return parser
 
