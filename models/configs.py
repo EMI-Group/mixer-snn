@@ -3,7 +3,6 @@ import ml_collections
 
 def get_mixer_sparse_tiny_config():
     config = ml_collections.ConfigDict()
-    config.name = 'mixer_sparse_tiny'
     config.in_channels = 3
     config.dim = 80
     config.alpha = 3

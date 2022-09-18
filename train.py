@@ -46,7 +46,7 @@ class Trainer(object):
         self.models = {
             'mixer_sparse': {
                 'model': models.mixer_sparse.sMLPNet,
-                'config': None
+                'config': models.configs.get_mixer_sparse_tiny_config()
             }
         }
 
