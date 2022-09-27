@@ -39,7 +39,7 @@ class Trainer(object):
         self.models = {
             'mixer_sparse': {
                 'model': models.mixer_sparse.sMLPNet,
-                'config': models.configs.get_mixer_sparse_tiny_config()
+                'config': models.configs.get_mixer_sparse_small_config()
             }
         }
 
@@ -507,7 +507,8 @@ class Trainer(object):
         ])
 
         val_transform = torchvision.transforms.Compose([
-            torchvision.transforms.Resize((224, 224)),
+            torchvision.transforms.Resize(256),
+            torchvision.transforms.CenterCrop(224),
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize(
                 mean=[0.485, 0.456, 0.406],

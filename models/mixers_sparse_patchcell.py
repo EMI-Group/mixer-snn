@@ -3,7 +3,10 @@ import torch.nn as nn
 from einops.layers.torch import Rearrange, Reduce
 from spikingjelly.activation_based import neuron, layer
 
-import utils
+
+def getConvBN3x3(in_channels, out_channels, stride):
+    return nn.Sequential(layer.Conv2d(in_channels, out_channels, 3, stride, 1, bias=False),
+                         nn.BatchNorm2d(out_channels))
 
 
 class FeedForward(nn.Module):
@@ -21,11 +24,33 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 
+class PatchCell(nn.Module):
+    def __init__(self, in_channels, out_channels) -> None:
+        super().__init__()
+        assert out_channels % 3 == 0
+        node_channels = out_channels // 3
+        self.cell2node = nn.ModuleList([
+            getConvBN3x3(in_channels, node_channels, 2),
+            getConvBN3x3(in_channels, node_channels, 2),
+            getConvBN3x3(in_channels, node_channels, 2),
+        ])
+        self.node1_node2 = getConvBN3x3(node_channels, node_channels, 1)
+        self.node2_node3 = getConvBN3x3(node_channels, node_channels, 1)
+        self.lif = nn.ModuleList([
+            neuron.LIFNode(detach_reset=True),
+            neuron.LIFNode(detach_reset=True)
+        ])
+
+    def forward(self, x):
+        node1_bn, node2_bn, node3_bn = (block(x) for block in self.cell2node)
+        node2_bn = node2_bn + self.node1_node2(self.lif[0](node1_bn))
+        node3_bn = node3_bn + node1_bn + self.node2_node3(self.lif[1](node2_bn))
+        return torch.cat((node1_bn, node2_bn, node3_bn), dim=2)
+
+
 class sMLPBlock(nn.Module):
     def __init__(self, H, W, in_channels, out_channels):
         super().__init__()
-        self.activation = neuron.LIFNode(detach_reset=True)
-        self.BN = nn.BatchNorm2d(in_channels)
         self.proj_w = nn.Sequential(
             Rearrange('t b c h w -> t b w c h'),
             layer.Conv2d(W, W, (1, 1)),
@@ -46,7 +71,7 @@ class sMLPBlock(nn.Module):
         )
 
     def forward(self, x):
-        x_identity = self.activation(self.BN(x))
+        x_identity = x
         x_h = self.proj_h(x)
         x_w = self.proj_w(x)
         x = self.fuse(torch.cat([x_identity, x_h, x_w], dim=2))
@@ -54,7 +79,7 @@ class sMLPBlock(nn.Module):
 
 
 class sMLPNet(nn.Module):
-    def __init__(self, in_channels=3, dim=80, alpha=3, num_classes=1000, patch_size=4, image_size=224,
+    def __init__(self, in_channels=3, dim=96, alpha=3, num_classes=1000, patch_size=4, image_size=224,
                  depths=[2, 8, 14, 2]):
         super(sMLPNet, self).__init__()
         self.num_patch = image_size // patch_size
@@ -74,9 +99,7 @@ class sMLPNet(nn.Module):
                     nn.Sequential(layer.Conv2d(in_channels, dim, patch_size, patch_size, bias=False),
                                   nn.BatchNorm2d(dim)))
             else:
-                self.to_patch_embedding.append(
-                    nn.Sequential(layer.Conv2d(dim * ratio // 2, dim * ratio, 2, 2, bias=False),
-                                  nn.BatchNorm2d(dim * ratio)))
+                self.to_patch_embedding.append(PatchCell(dim * ratio // 2, dim * ratio))
             self.to_patch_embedding_lif.append(neuron.LIFNode(detach_reset=True))
 
             for j in range(self.depths[i]):
@@ -116,7 +139,8 @@ class sMLPNet(nn.Module):
 
 
 if __name__ == '__main__':
-    from models.configs import get_mixer_sparse_small_config
-    config = get_mixer_sparse_small_config()
+    import utils
+    from models.configs import get_mixer_sparse_big_config
+    config = get_mixer_sparse_big_config()
     config.num_classes = 1000
     print(utils.count_parameters(sMLPNet(**dict(config))))
