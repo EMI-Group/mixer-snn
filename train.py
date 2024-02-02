@@ -21,6 +21,7 @@ import models.mixers_sparse_patchcell_layer_norm
 import models.mixers_sparse_patchcell_tdbn
 import models.mixers_sparse_patchcell_tebn
 import models.mixers_sparse_patchcell
+import models.mixers_sparse_patchcell_origin
 import models.configs
 import utils
 import models.layers
@@ -48,7 +49,7 @@ class Trainer(object):
     def __init__(self):
         self.models = {
             'mixer_sparse': {
-                'model': models.mixers_sparse_patchcell.sMLPNet,
+                'model': models.mixers_sparse_patchcell_origin.sMLPNet,
                 'config': models.configs.get_mixer_sparse_small_config()
             }
         }
