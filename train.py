@@ -17,7 +17,9 @@ import shutil
 
 import torchvision.datasets
 
-import models.mixer_sparse
+import models.mixers_sparse_patchcell_layer_norm
+import models.mixers_sparse_patchcell_tdbn
+import models.mixers_sparse_patchcell_tebn
 import models.configs
 import utils
 import models.layers
@@ -45,8 +47,8 @@ class Trainer(object):
     def __init__(self):
         self.models = {
             'mixer_sparse': {
-                'model': models.mixer_sparse.sMLPNet,
-                'config': models.configs.get_mixer_sparse_tiny_config()
+                'model': models.mixers_sparse_patchcell_tebn.sMLPNet,
+                'config': models.configs.get_mixer_sparse_small_config()
             }
         }
 
@@ -94,7 +96,7 @@ class Trainer(object):
 
         print('Creating model...')
         model = self.load_model(args, num_classes)
-        model = models.layers.convert_bn_to_sync_bn(model)
+        # model = models.layers.convert_bn_to_sync_bn(model)
         model.to(device)
         print(model)
 
@@ -639,7 +641,7 @@ class Trainer(object):
         parser.add_argument('--seed', default=42, type=int)
         parser.add_argument('--amp', action='store_true')
         parser.add_argument('--clip-grad-norm', default=None, type=float)
-        parser.add_argument("--local_rank", type=int)
+        parser.add_argument("--local-rank", type=int)
         parser.add_argument('--clean', action='store_true')
         parser.add_argument('--record-fire-rate', action='store_true')
         parser.add_argument('--test-only', action='store_true')
