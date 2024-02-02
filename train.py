@@ -622,7 +622,7 @@ class Trainer(object):
         parser.add_argument('--device', default='cuda', type=str)
         parser.add_argument('--batch-size', default=32, type=int)
         parser.add_argument('--epochs', default=90, type=int)
-        parser.add_argument('--workers', default=16, type=int)
+        parser.add_argument('--workers', default=1, type=int)
         parser.add_argument('--opt', default='sgd', type=str)
         parser.add_argument('--lr', default=0.1, type=float)
         parser.add_argument('--momentum', default=0.9, type=float)
