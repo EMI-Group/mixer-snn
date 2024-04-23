@@ -1,78 +1,114 @@
-# Mixer-SNN
+# Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference
 
-## Run
-```commandline
-bash terminal.sh
+```BibTex
+@misc{li2024efficient,
+      title={Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference}, 
+      author={Boyan Li and Luziwei Leng and Ran Cheng and Shuaijie Shen and Kaixuan Zhang and Jianguo Zhang and Jianxing Liao},
+      year={2024},
+      eprint={2306.12465},
+      archivePrefix={arXiv},
+      primaryClass={cs.NE}
+}
 ```
 
-## terminal.sh
-1. CIFAR-10
-```commandline
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch --nproc_per_node=8 train.py --T 4 --batch-size 64 --model mixer_conv_encode --epochs 300 --output-dir ./logs --lr 0.1 --lr-scheduler step --lr-step-size 40 --lr-gamma 0.5 --data cifar10 --opt sgd --lr-warmup-epochs 0 --exp-name cifar10
+## Overview
+Overall |  Spiking Token Block | Spiking Channel Block | Spiking Patch Encoding
+:-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:
+<img src="./assets/overview.png" width="300"></img> | <img src="./assets/token.png" width="250"></img> | <img src="./assets/channel.png" width="180"></img> | <img src="./assets/encode.png" width="500"></img> 
+
+This project provides the official implementation for our TNNLS2023 paper "[Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference](https://arxiv.org/abs/2306.12465)". **Mixer-SNN** is a spiking MLP architecture that uses batch normalization to retain MFI compatibility and introduces a spiking patch encoding layer to reinforce local feature extraction capabilities. Our network secures a top-1 accuracy of **66.39%** on the ImageNet-1K dataset, surpassing the directly trained spiking ResNet-34 by **2.67%**. An expanded version of our network compares with the performance of the spiking VGG-16 network with a **71.64%** top-1 accuracy, all while operating with a model capacity **2.1 times smaller**.
+
+## Installation
+
 ```
-2. ImageNet
-```commandline
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch --nproc_per_node=8 train.py --T 4 --batch-size 64 --model mixer_conv_encode --epochs 300 --output-dir ./logs --lr 0.1 --lr-scheduler step --lr-step-size 40 --lr-gamma 0.5 --data imagenet --data-path /defaultShare/ILSVRC2012/images --opt sgd --lr-warmup-epochs 0 --exp-name imagenet
+git clone https://github.com/BugMaker-Boyan/Mixer-SNN.git
+cd Mixer-SNN
+conda create -n mixer_snn python=3.9
+conda activate mixer_snn
+pip install -r requirements.txt
 ```
 
-## Tensorboard
-```commandline
+Additionally, install cupy package **based on yout cuda version**.
+
+```
+# For CUDA 11.2 ~ 11.x
+pip install cupy-cuda11x
+
+# For CUDA 12.x
+pip install cupy-cuda12x
+```
+
+## Training
+
+To train a Mixer-SNN-Small model on ImageNet-1K dataset with 8 GPUs, run:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch \
+	--nproc_per_node=8 train.py \
+	--model_size small
+	--T 4 \
+	--cupy \
+	--amp \
+	--batch-size 64 \
+	--model mixer_sparse \
+	--epochs 100 \
+	--output-dir ./logs \
+	--lr 0.1 \
+	--lr-scheduler cosa \
+	--data imagenet \
+	--data-path /data/ILSVRC2012 \
+	--opt sgd \
+	--lr-warmup-epochs 0 \
+	--exp-name Mixer-SNN-Small-ImageNet
+```
+
+To train a Mixer-SNN-Small model on CIFAR10 dataset with 8 GPUs, run:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.launch \
+	--nproc_per_node=8 train.py \
+	--model_size small
+	--T 4 \
+	--cupy \
+	--amp \
+	--batch-size 64 \
+	--model mixer_sparse \
+	--epochs 100 \
+	--output-dir ./logs \
+	--lr 0.1 \
+	--lr-scheduler cosa \
+	--data cifar10 \
+	--data-path /data/liboyan/ILSVRC2012 \
+	--opt sgd \
+	--lr-warmup-epochs 0 \
+	--exp-name Mixer-SNN-Small-ImageNet
+```
+
+You can watch the training process via tensorboard:
+
+```bash
 tensorboadr --logdir=./logs
 ```
 
-## Model Config
-*models/configs.py*
-```python
-def get_mixer_conv_encode_config():
-    config = ml_collections.ConfigDict()
-    config.name = 'mixer_conv_encode'
-    config.img_size = 224 # input image size
-    config.patch_size = 16 # patch size, related to dimension S with (S, C) feature map
-    config.encode_dim = 32 # encode layer
-    config.hidden_dim = 768 # related to dimension C with (S, C) feature map
-    config.token_hidden_dim = 256 # token hidden dim in token mixing block
-    config.channel_hidden_dim = 2048 # channel hidden dim in channel mixing block
-    config.num_blocks = 4 # number of mixer blocks
-    return config
-```
+## Results
 
+### ImageNet-1K
 
-## Arguments
-```python
-parser.add_argument('--exp-name', default='mixer-exp', type=str)
-parser.add_argument('--data', default='cifar10', type=str) # cifar10 / imagenet
-parser.add_argument('--data-path', default='./data', type=str)
-parser.add_argument('--model', default='mixer_conv_encode', type=str)
-parser.add_argument('--T', default=4, type=int) # time window
-parser.add_argument('--cupy', action='store_true')  # one way to accelerate neuron
-parser.add_argument('--device', default='cuda', type=str)
-parser.add_argument('--batch-size', default=32, type=int)   # batch size
-parser.add_argument('--epochs', default=90, type=int)   # train epochs
-parser.add_argument('--workers', default=16, type=int)  # dataloader workers
-parser.add_argument('--opt', default='sgd', type=str)   # optimizer
-parser.add_argument('--lr', default=0.1, type=float)    # learning rate
-parser.add_argument('--momentum', default=0.9, type=float)
-parser.add_argument('--weight-decay', default=0., type=float)
-parser.add_argument('--betas', default=[0.9, 0.999], type=float, nargs=2)
-parser.add_argument('--criterion', default='ce', type=str)  # cross-entropy loss
-parser.add_argument('--lr-scheduler', default='cosa', type=str)
-parser.add_argument('--lr-warmup-epochs', default=10, type=int)
-parser.add_argument('--lr-warmup-method', default='linear', type=str)
-parser.add_argument('--lr-warmup-decay', default=0.01, type=float)
-parser.add_argument('--lr-step-size', default=30, type=int)
-parser.add_argument('--lr-gamma', default=0.1, type=float)
-parser.add_argument('--output-dir', default='./logs', type=str) # log output dir
-parser.add_argument('--resume', default=None, type=str)
-parser.add_argument('--start-epoch', default=0, type=int)
-parser.add_argument('--world-size', default=1, type=int)    # preserve
-parser.add_argument('--dist-url', default='env://', type=str)   # preserve
-parser.add_argument('--seed', default=42, type=int) # set seed
-parser.add_argument('--amp', action='store_true')   # auto mix precision
-parser.add_argument('--clip-grad-norm', default=None, type=float)
-parser.add_argument("--local_rank", type=int)   # preserve
-parser.add_argument('--clean', action='store_true')
-parser.add_argument('--record-fire-rate', action='store_true')
-parser.add_argument('--test-only', action='store_true')
-parser.add_argument('--label-smoothing', type=float, default=0.0)
-parser.add_argument('--fine-tune', default=None, type=str)
-```
+| Method                                                       | Architecture       | Model Size | T     | Accuracy[%] |
+| ------------------------------------------------------------ | ------------------ | ---------- | ----- | ----------- |
+| [ANN-SNN](https://arxiv.org/abs/1802.02627)                  | ResNet-34          | 22M        | 768   | 71.6        |
+| [ANN-SNN](https://arxiv.org/abs/1802.02627)                  | VGG-16             | 138M       | 2500  | 69.96       |
+| [S-ResNet](https://ieeexplore.ieee.org/document/9597475)     | ResNet-50          | 26M        | 350   | 73.77       |
+| [Hybrid training](https://openreview.net/forum?id=B1xSperKvH) | ResNet-34          | 22M        | 250   | 61.48       |
+| [Hybrid training](https://www.semanticscholar.org/paper/Enabling-Spike-Based-Backpropagation-for-Training-Lee-Sarwar/eaaaed86d1b811fb4690e20ec532d4298c10e324) | VGG-16             | 138M       | 250   | 65.19       |
+| [Tandem Learning](https://ieeexplore.ieee.org/document/9492305) | AlexNet            | 62M        | 10    | 50.22       |
+| [STBP-tdBN](https://ojs.aaai.org/index.php/AAAI/article/view/17320) | ResNet-34          | 22M        | 6     | 63.72       |
+| [TET](https://openreview.net/forum?id=_XNtisL32jv)           | ResNet-34          | 22M        | 6     | 64.79       |
+| [STBP-tdBN](https://ojs.aaai.org/index.php/AAAI/article/view/17320) | ResNet-34-large    | 86M        | 6     | 67.05       |
+| [Diet-SNN](https://ieeexplore.ieee.org/document/9556508/)    | VGG-16             | 138M       | 5     | 69.00       |
+| [SpikeDHS](https://papers.nips.cc/paper_files/paper/2022/hash/9e8c2895db691eaab85af37bddee75aa-Abstract-Conference.html) | SpikeDHS-CLA-large | 58M        | 6     | 67.96       |
+| **Spiking MLP (our model)**                                  | **MLP-SPE-T**      | **25M**    | **4** | **66.39**   |
+| **Spiking MLP (our model)**                                  | **MLP-SPE-T**      | **25M**    | **6** | **69.09**   |
+| **Spiking MLP (our model)**                                  | **MLP-S**          | **34M**    | **4** | **63.25**   |
+| **Spiking MLP (our model)**                                  | **MLP-SPE-S**      | **38M**    | **4** | **68.84**   |
+| **Spiking MLP (our model)**                                  | **MLP-SPE-B**      | **66M**    | **6** | **71.64**   |

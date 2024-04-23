@@ -1,0 +1,6 @@
+torch
+torchvision
+tensorboard
+spikingjelly
+ml_collections
+einops

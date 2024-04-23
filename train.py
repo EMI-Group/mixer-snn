@@ -45,16 +45,21 @@ def set_deterministic(_seed_: int = 2022):
     cudnn.benchmark = False
 
 
+CONFIG_MAP = {
+    "tiny": models.configs.get_mixer_sparse_tiny_config(),
+    "small": models.configs.get_mixer_sparse_small_config(),
+    "big": models.configs.get_mixer_sparse_big_config()
+}
+
+
 class Trainer(object):
-    def __init__(self):
+    def main(self, args):
         self.models = {
             'mixer_sparse': {
                 'model': models.mixers_sparse_patchcell_origin.sMLPNet,
-                'config': models.configs.get_mixer_sparse_small_config()
+                'config': CONFIG_MAP[args.model_size]
             }
         }
-
-    def main(self, args):
         set_deterministic(args.seed)
         if args.output_dir:
             os.makedirs(args.output_dir, exist_ok=True)
@@ -616,7 +621,7 @@ class Trainer(object):
         parser.add_argument('--data', default='cifar10', type=str)
         parser.add_argument('--data-path', default='./data', type=str)
         parser.add_argument('--input-size', default=224, type=int, help='images input size')
-        parser.add_argument('--model', default='model_mixer_modify_res_v3', type=str)
+        parser.add_argument('--model_size', default='small', type=str, choices=['tiny', 'small', 'big'])
         parser.add_argument('--T', default=4, type=int)
         parser.add_argument('--cupy', action='store_true')
         parser.add_argument('--device', default='cuda', type=str)
