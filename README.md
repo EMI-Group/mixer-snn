@@ -112,3 +112,5 @@ tensorboadr --logdir=./logs
 | **Spiking MLP (our model)**                                  | **MLP-S**          | **34M**    | **4** | **63.25**   |
 | **Spiking MLP (our model)**                                  | **MLP-SPE-S**      | **38M**    | **4** | **68.84**   |
 | **Spiking MLP (our model)**                                  | **MLP-SPE-B**      | **66M**    | **6** | **71.64**   |
+
+For more details,please refer to our paper [Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference](https://arxiv.org/abs/2306.12465).
