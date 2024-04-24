@@ -17,7 +17,7 @@ conda activate mixer_snn
 pip install -r requirements.txt
 ```
 
-Additionally, install cupy package **based on yout cuda version**.
+Additionally, install cupy package **based on your cuda version**.
 
 ```
 # For CUDA 11.2 ~ 11.x
