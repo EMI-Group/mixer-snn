@@ -1,22 +1,11 @@
 # Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference
 
-```BibTex
-@misc{li2024efficient,
-      title={Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference}, 
-      author={Boyan Li and Luziwei Leng and Ran Cheng and Shuaijie Shen and Kaixuan Zhang and Jianguo Zhang and Jianxing Liao},
-      year={2024},
-      eprint={2306.12465},
-      archivePrefix={arXiv},
-      primaryClass={cs.NE}
-}
-```
-
 ## Overview
 Overall |  Spiking Token Block | Spiking Channel Block | Spiking Patch Encoding
 :-------------------------:|:-------------------------:|:-------------------------:|:-------------------------:
 <img src="./assets/overview.png" width="300"></img> | <img src="./assets/token.png" width="250"></img> | <img src="./assets/channel.png" width="180"></img> | <img src="./assets/encode.png" width="500"></img> 
 
-This project provides the official implementation for our TNNLS2023 paper "[Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference](https://arxiv.org/abs/2306.12465)". **Mixer-SNN** is a spiking MLP architecture that uses batch normalization to retain MFI compatibility and introduces a spiking patch encoding layer to reinforce local feature extraction capabilities. Our network secures a top-1 accuracy of **66.39%** on the ImageNet-1K dataset, surpassing the directly trained spiking ResNet-34 by **2.67%**. An expanded version of our network compares with the performance of the spiking VGG-16 network with a **71.64%** top-1 accuracy, all while operating with a model capacity **2.1 times smaller**.
+This project provides the official implementation for our paper "[Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference](https://arxiv.org/abs/2306.12465)". **Mixer-SNN** is a spiking MLP architecture that uses batch normalization to retain MFI compatibility and introduces a spiking patch encoding layer to reinforce local feature extraction capabilities. Our network secures a top-1 accuracy of **66.39%** on the ImageNet-1K dataset, surpassing the directly trained spiking ResNet-34 by **2.67%**. An expanded version of our network compares with the performance of the spiking VGG-16 network with a **71.64%** top-1 accuracy, all while operating with a model capacity **2.1 times smaller**.
 
 ## Installation
 
@@ -114,3 +103,16 @@ tensorboadr --logdir=./logs
 | **Spiking MLP (our model)**                                  | **MLP-SPE-B**      | **66M**    | **6** | **71.64**   |
 
 For more details,please refer to our paper [Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference](https://arxiv.org/abs/2306.12465).
+
+
+## Citation
+```BibTex
+@misc{li2024efficient,
+      title={Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference}, 
+      author={Boyan Li and Luziwei Leng and Ran Cheng and Shuaijie Shen and Kaixuan Zhang and Jianguo Zhang and Jianxing Liao},
+      year={2024},
+      eprint={2306.12465},
+      archivePrefix={arXiv},
+      primaryClass={cs.NE}
+}
+```
