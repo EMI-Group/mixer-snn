@@ -107,12 +107,11 @@ For more details,please refer to our paper [Efficient Deep Spiking Multi-Layer P
 
 ## Citation
 ```BibTex
-@misc{li2024efficient,
-      title={Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference}, 
-      author={Boyan Li and Luziwei Leng and Ran Cheng and Shuaijie Shen and Kaixuan Zhang and Jianguo Zhang and Jianxing Liao},
-      year={2024},
-      eprint={2306.12465},
-      archivePrefix={arXiv},
-      primaryClass={cs.NE}
+@article{li2024efficient,
+         title={Efficient Deep Spiking Multi-Layer Perceptrons with Multiplication-Free Inference}, 
+         author={Boyan Li and Luziwei Leng and Ran Cheng and Shuaijie Shen and Kaixuan Zhang and Jianguo Zhang and Jianxing Liao},
+         year={2024},
+         journal={IEEE Transactions on Neural Networks and Learning Systems},
+         doi={10.1109/TNNLS.2024.3394837}
 }
 ```
